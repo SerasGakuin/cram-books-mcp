@@ -176,3 +176,58 @@ def clear_preview_cache():
     _PREVIEW_CACHE.clear()
     yield
     _PREVIEW_CACHE.clear()
+
+
+@pytest.fixture
+def mock_gas_api(httpx_mock, gas_responses):
+    """
+    Fixture to mock GAS API responses for tool tests.
+
+    Usage:
+        def test_books_find(mock_gas_api):
+            mock_gas_api("books.find")
+            # ... test code that calls GAS API
+    """
+    def _mock_api(response_key: str, method: str = "GET"):
+        response = gas_responses.get(response_key, gas_responses["error"])
+        if method.upper() == "GET":
+            httpx_mock.add_response(json=response)
+        else:
+            httpx_mock.add_response(json=response)
+    return _mock_api
+
+
+@pytest.fixture
+def mock_gas_sequence(httpx_mock, gas_responses):
+    """
+    Fixture to mock a sequence of GAS API responses.
+
+    Usage:
+        def test_two_phase_update(mock_gas_sequence):
+            mock_gas_sequence(["books.update_preview", "books.update_confirm"])
+            # ... test code that calls GAS API twice
+    """
+    def _mock_sequence(response_keys: list[str]):
+        for key in response_keys:
+            response = gas_responses.get(key, gas_responses["error"])
+            httpx_mock.add_response(json=response)
+    return _mock_sequence
+
+
+@pytest.fixture
+def mock_gas_error(httpx_mock):
+    """
+    Fixture to mock GAS API error response.
+
+    Usage:
+        def test_error_handling(mock_gas_error):
+            mock_gas_error("NOT_FOUND", "Book not found")
+            # ... test code
+    """
+    def _mock_error(code: str, message: str, op: str = "error"):
+        httpx_mock.add_response(json={
+            "ok": False,
+            "op": op,
+            "error": {"code": code, "message": message}
+        })
+    return _mock_error
