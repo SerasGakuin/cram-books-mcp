@@ -116,28 +116,21 @@ scripts/deploy_mcp.sh
 
 ### 2.5 テスト
 
-#### GAS（Vitest）
-```bash
-cd apps/gas
-npm test              # テスト実行
-npm run test:watch    # ウォッチモード
-npm run test:coverage # カバレッジ付き実行
-```
-- lib/の純粋関数は100%カバレッジ目標
-- handlerはGASスタブモックを使用
+> 詳細は [docs/TESTING.md](docs/TESTING.md) を参照
 
-#### MCP（pytest）
-```bash
-cd apps/mcp
-uv run pytest                         # テスト実行
-uv run pytest --cov=. --cov-report=term-missing  # カバレッジ付き
-```
-- ヘルパー関数のユニットテスト
-- httpxモックを使用したツールテスト
+| Component | Tests | Coverage |
+|-----------|-------|----------|
+| GAS lib/ + handlers/ | 201 | ~86% |
+| MCP helpers + tools | 137 | ~70% |
+| **Total** | **338** | |
 
-#### E2Eテスト（実環境; EXEC_URL 必須）
-- GAS: GASエディタから testBooksAll / testPlannerReadSample を実行
-- MCP: `uv run python apps/mcp/tests/run_tests.py`
+```bash
+# GAS
+cd apps/gas && npm test              # または npm run test:coverage
+
+# MCP
+cd apps/mcp && uv run pytest tests/  # または --cov=.
+```
 
 ### 2.6 CI/CD（GitHub Actions）
 - **test.yml**: PR/push時に自動テスト（GAS: Vitest, MCP: pytest）

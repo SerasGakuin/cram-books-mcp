@@ -92,3 +92,31 @@
 #### Documentation
 - Updated README.md with testing and CI/CD sections
 - Updated section numbering (2.5 Testing, 2.6 CI/CD, 2.7 Claude/ChatGPT, 2.8 Troubleshooting)
+
+### feat: TDD Phase 2 - Handler & Tool Tests
+
+#### GAS Handler Tests (111 tests)
+- `handlers/__tests__/books.test.ts`: 35 tests (find, get, filter, create, update, delete)
+- `handlers/__tests__/students.test.ts`: 34 tests (list, find, get, filter, create, update, delete)
+- `handlers/__tests__/planner.test.ts`: 24 tests (ids_list, dates_get/set, metrics_get, plan_get/set)
+- `handlers/__tests__/planner_monthly.test.ts`: 18 tests (filter with year normalization)
+- Coverage: 88.45% handlers, 85.7% overall
+
+#### MCP Tool Tests (71 tests)
+- `tests/test_books_tools.py`: 26 tests (find, get, filter, create, update, delete, list)
+- `tests/test_students_tools.py`: 25 tests (list, find, get, filter, create, update, delete)
+- `tests/test_planner_tools.py`: 20 tests (ids_list, dates_*, metrics, plan_*, guidance)
+- Added httpx mock fixtures to `conftest.py`
+- Coverage: ~72% server.py
+
+#### Coverage Configuration
+- Updated `vitest.config.ts` to include handlers/
+- Thresholds: 80% lines, 60% branches, 90% functions
+
+#### Documentation
+- Created `docs/TESTING.md` with comprehensive testing guide
+- Updated README.md test section with coverage table and link to TESTING.md
+
+#### Total Test Count: 338
+- GAS: 201 tests (90 lib + 111 handlers)
+- MCP: 137 tests (66 helpers + 71 tools)
