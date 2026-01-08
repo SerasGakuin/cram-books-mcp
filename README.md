@@ -115,17 +115,42 @@ scripts/deploy_mcp.sh
 - ENV: `EXEC_URL`（必須, GAS WebAppの/exec）/ `SCRIPT_ID`（任意: Execution API 実験用）
 
 ### 2.5 テスト
-- GAS（GASエディタ）
-  - testBooksAll / testPlannerReadSample / testPlannerBulkSpeedGAS（週2の空欄10件程度を write→revert）
-- MCP（E2E; EXEC_URL 必須）
-  - `uv run python apps/mcp/tests/run_tests.py`
-  - SPREADSHEET_ID を与えれば planner 系も実行（まとめ処理の所要時間をログ）
 
-### 2.6 Claude / ChatGPT
+#### GAS（Vitest）
+```bash
+cd apps/gas
+npm test              # テスト実行
+npm run test:watch    # ウォッチモード
+npm run test:coverage # カバレッジ付き実行
+```
+- lib/の純粋関数は100%カバレッジ目標
+- handlerはGASスタブモックを使用
+
+#### MCP（pytest）
+```bash
+cd apps/mcp
+uv run pytest                         # テスト実行
+uv run pytest --cov=. --cov-report=term-missing  # カバレッジ付き
+```
+- ヘルパー関数のユニットテスト
+- httpxモックを使用したツールテスト
+
+#### E2Eテスト（実環境; EXEC_URL 必須）
+- GAS: GASエディタから testBooksAll / testPlannerReadSample を実行
+- MCP: `uv run python apps/mcp/tests/run_tests.py`
+
+### 2.6 CI/CD（GitHub Actions）
+- **test.yml**: PR/push時に自動テスト（GAS: Vitest, MCP: pytest）
+- **deploy.yml**: 手動またはコミットメッセージトリガーでデプロイ
+  - `[deploy-gas]`: GASをデプロイ
+  - `[deploy-mcp]`: Cloud Runにデプロイ
+  - 必要シークレット: `CLASP_CREDENTIALS`, `GAS_DEPLOY_ID`, `WIF_PROVIDER`, `WIF_SERVICE_ACCOUNT`, `CLOUD_RUN_SERVICE`, `CLOUD_RUN_REGION`, `EXEC_URL`
+
+### 2.7 Claude / ChatGPT
 - Claude: 本mainの多機能MCPをそのまま利用（任意ツール呼び出し）
 - ChatGPT: コネクタの仕様上 `search`/`fetch` のみ。別ブランチで最小I/Fを用意（詳細は AGENTS.md の「ChatGPT コネクタ対応」）
 
-### 2.7 トラブルシューティング
+### 2.8 トラブルシューティング
 - 302/303: WebAppのリダイレクト特性。HTTPクライアントは follow_redirects を有効化
 - /mcp 直叩きは 406: SSE必須の正常応答
 - `EXEC_URL is not set`: Cloud Run の環境変数に設定

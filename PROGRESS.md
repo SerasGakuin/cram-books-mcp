@@ -49,3 +49,46 @@
   - Added `/healthz` endpoint and 406 hint at `/` (SSE endpoint remains `/mcp`).
   - Updated Cloud Run deploy defaults: `--timeout=3600`, `--concurrency=5`, `--min-instances=1`.
   - No functional API changes. SSE endpoint unchanged.
+
+## 2026-01-08
+
+### feat: Comprehensive TDD Implementation
+
+#### GAS Test Infrastructure (Vitest)
+- Added Vitest test framework with v8 coverage
+- Created `vitest.config.ts` with 90% coverage thresholds
+- Created `src/__mocks__/gas-stubs.ts` for SpreadsheetApp/CacheService/ContentService mocks
+- 88 unit tests for lib/ pure functions:
+  - `common.test.ts`: normalize, toNumberOrNull, ok, ng
+  - `id_rules.test.ts`: decidePrefix, nextIdForPrefix
+  - `sheet_utils.test.ts`: headerKey, pickCol, parseMonthlyGoal
+- lib/ coverage: 97.95%
+
+#### GAS Refactoring (DRY + Testability)
+- New `src/interfaces/spreadsheet.ts`: ISheet, IRange, ISpreadsheet, ISpreadsheetService, ICacheService interfaces
+- New `src/services/factory.ts`: Service factory for dependency injection
+- New `src/types/domain.ts`: Strong type definitions (BookMeta, Student, PlannerItem, etc.)
+- New `src/lib/student_resolver.ts`: Extracted resolveSpreadsheetIdByStudent (DRY fix)
+- New `src/lib/columns.ts`: Centralized column name definitions
+- Updated `handlers/planner.ts` and `handlers/planner_monthly.ts` to use shared modules
+
+#### MCP Test Infrastructure (pytest)
+- Added pytest, pytest-asyncio, pytest-cov, pytest-httpx dependencies
+- Created `conftest.py` with fixtures and GAS response templates
+- 66 unit tests for helper functions:
+  - `test_helpers.py`: _strip_quotes, _coerce_str, _norm_header, _pick_col, _verify_hmac, etc.
+- All pure function tests pass
+
+#### CI/CD (GitHub Actions)
+- New `.github/workflows/test.yml`: Automated testing on push/PR
+  - GAS tests with Vitest and coverage upload
+  - MCP tests with pytest and coverage upload
+  - Build validation
+- New `.github/workflows/deploy.yml`: Manual/triggered deployment
+  - GAS deployment via clasp
+  - MCP deployment to Cloud Run
+  - Triggered by `[deploy-gas]` or `[deploy-mcp]` in commit message
+
+#### Documentation
+- Updated README.md with testing and CI/CD sections
+- Updated section numbering (2.5 Testing, 2.6 CI/CD, 2.7 Claude/ChatGPT, 2.8 Troubleshooting)
