@@ -3,59 +3,17 @@
  * - 読み取り専用: 指定 (year, month) の行をフィルタして返す
  */
 import { ApiResponse, ok, ng, toNumberOrNull } from "../lib/common";
-import { pickCol, headerKey } from "../lib/sheet_utils";
-import { CONFIG } from "../config";
+import { resolveSpreadsheetIdByStudent } from "../lib/student_resolver";
+import { MONTHLY_SHEET_NAME } from "../lib/columns";
 
 type RowMap = Record<string, any>;
 
-const SHEET_NAME = "月間管理";
-
-function resolveSpreadsheetIdByStudent(req: RowMap): string | null {
-  if (req.spreadsheet_id) return String(req.spreadsheet_id);
-  const student_id = String(req.student_id || "").trim();
-  if (!student_id) return null;
-  try {
-    const ssStu = SpreadsheetApp.openById(req.students_file_id || CONFIG.STUDENTS_FILE_ID);
-    const shStu = ssStu.getSheetByName(req.students_sheet || CONFIG.STUDENTS_SHEET) || ssStu.getSheets()[0];
-    if (!shStu) return null;
-    const values = shStu.getDataRange().getValues();
-    if (values.length < 2) return null;
-    const headers = values[0].map(String);
-    const idxId = pickCol(headers, ["生徒ID", "ID", "id"]);
-    const idxPlannerId = pickCol(headers, ["スピードプランナーID", "PlannerSheetId", "planner_sheet_id", "プランナーID"]);
-    const idxLink = pickCol(headers, ["スプレッドシート", "スピードプランナー", "PlannerLink", "プランナーリンク", "スプレッドシートURL"]);
-    for (let r = 1; r < values.length; r++) {
-      const id = String(idxId >= 0 ? values[r][idxId] : "").trim();
-      if (!id) continue;
-      if (id === student_id) {
-        const plannerId = idxPlannerId >= 0 ? String(values[r][idxPlannerId]).trim() : "";
-        if (plannerId) return plannerId;
-        if (idxLink >= 0) {
-          try {
-            const rich = shStu.getRange(r + 1, idxLink + 1).getRichTextValue();
-            const url = (rich && rich.getLinkUrl()) || String(values[r][idxLink]).trim();
-            const m = String(url).match(/[-\w]{25,}/);
-            if (m) return m[0];
-          } catch (_) {
-            const raw = String(values[r][idxLink]).trim();
-            const m = raw.match(/[-\w]{25,}/);
-            if (m) return m[0];
-          }
-        }
-        return null;
-      }
-    }
-    return null;
-  } catch (_) {
-    return null;
-  }
-}
-
+// openMonthlySheet uses shared resolveSpreadsheetIdByStudent from lib/student_resolver.ts
 function openMonthlySheet(req: RowMap): GoogleAppsScript.Spreadsheet.Sheet | null {
   const fid = req.spreadsheet_id || resolveSpreadsheetIdByStudent(req);
   if (!fid) return null;
   const ss = SpreadsheetApp.openById(fid);
-  const sh = ss.getSheetByName(SHEET_NAME);
+  const sh = ss.getSheetByName(MONTHLY_SHEET_NAME);
   return sh || null;
 }
 

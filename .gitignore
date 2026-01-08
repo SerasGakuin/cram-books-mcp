@@ -45,6 +45,11 @@ apps/gas/dist/
 apps/gas/_tmp*.json
 apps/mcp/dist/
 
+# Coverage reports
+coverage/
+apps/*/coverage/
+*.lcov
+
 # Logs
 *.log
 

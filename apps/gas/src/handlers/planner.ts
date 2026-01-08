@@ -3,25 +3,15 @@
  * - 最小権限I/Oのみを提供（読み: A/B/C/D, 日付, メトリクス, 計画; 書き: D1, 計画セル）
  * - 業務ロジック（プレビュー/確定、上書き方針など）は MCP 側で実装
  */
-import { CONFIG } from "../config";
 import { ApiResponse, ok, ng, toNumberOrNull } from "../lib/common";
-import { pickCol, headerKey } from "../lib/sheet_utils";
+import { resolveSpreadsheetIdByStudent } from "../lib/student_resolver";
+import { WEEK_COLUMNS, WEEK_START_ADDRESSES, WEEKLY_SHEET_NAMES } from "../lib/columns";
 
 type RowMap = Record<string, any>;
 
-const SHEET_NAME = "週間管理"; // 正式: 週間管理
-
-// 週→列マッピング（時間/単位/目安/計画）
-const WEEK_COLS = [
-  /*1*/ { time: "E", unit: "F", guide: "G", plan: "H" },
-  /*2*/ { time: "M", unit: "N", guide: "O", plan: "P" },
-  /*3*/ { time: "U", unit: "V", guide: "W", plan: "X" },
-  /*4*/ { time: "AC", unit: "AD", guide: "AE", plan: "AF" },
-  /*5*/ { time: "AK", unit: "AL", guide: "AM", plan: "AN" },
-];
-
-// D1/L1/T1/AB1/AJ1（週開始日）
-const WEEK_START_ADDR = ["D1", "L1", "T1", "AB1", "AJ1"] as const;
+// Use shared column definitions
+const WEEK_COLS = WEEK_COLUMNS;
+const WEEK_START_ADDR = WEEK_START_ADDRESSES;
 
 // A/B/C/D 列（4〜30行）を 2 次元配列で取得
 function readABCD(sh: GoogleAppsScript.Spreadsheet.Sheet): any[][] {
@@ -39,71 +29,17 @@ function parseBookCode(raw: string): { month_code: number | null; book_id: strin
   return { month_code: Number.isFinite(code) ? code : null, book_id: id };
 }
 
-// 学生IDからプランナーの Spreadsheet ID を解決
-// - req.spreadsheet_id があれば優先
-// - なければ Students Master から「スプレッドシート」URL もしくは「スピードプランナーID」を探す
-function resolveSpreadsheetIdByStudent(req: RowMap): string | null {
-  if (req.spreadsheet_id) return String(req.spreadsheet_id);
-  const student_id = String(req.student_id || "").trim();
-  if (!student_id) return null;
-  try {
-    const ssStu = SpreadsheetApp.openById(req.students_file_id || CONFIG.STUDENTS_FILE_ID);
-    const shStu = ssStu.getSheetByName(req.students_sheet || CONFIG.STUDENTS_SHEET) || ssStu.getSheets()[0];
-    if (!shStu) return null;
-    const values = shStu.getDataRange().getValues();
-    if (values.length < 2) return null;
-    const headers = values[0].map(String);
-    const idxId = pickCol(headers, ["生徒ID", "ID", "id"]);
-    const idxPlannerId = pickCol(headers, ["スピードプランナーID", "PlannerSheetId", "planner_sheet_id", "プランナーID"]);
-    let idxLink = pickCol(headers, ["スプレッドシート", "スピードプランナー", "PlannerLink", "プランナーリンク", "スプレッドシートURL"]);
-    if (idxLink < 0) {
-      // 部分一致のフォールバック（見出しにカッコ書き等が付いている場合）
-      const HN = headers.map(h => headerKey(h));
-      const pos = HN.findIndex(hk => hk.includes(headerKey("スプレッドシート")) || hk.includes("planner") || hk.includes(headerKey("プランナー")));
-      if (pos >= 0) idxLink = pos;
-    }
-    for (let r = 1; r < values.length; r++) {
-      const id = String(idxId >= 0 ? values[r][idxId] : "").trim();
-      if (!id) continue;
-      if (id === student_id) {
-        const plannerId = idxPlannerId >= 0 ? String(values[r][idxPlannerId]).trim() : "";
-        if (plannerId) return plannerId;
-        let link = "";
-        if (idxLink >= 0) {
-          try {
-            const rich = shStu.getRange(r + 1, idxLink + 1).getRichTextValue();
-            link = (rich && rich.getLinkUrl()) || String(values[r][idxLink]).trim();
-          } catch (_) {
-            link = String(values[r][idxLink]).trim();
-          }
-          if (link) {
-            const m = String(link).match(/[-\w]{25,}/); // スプレッドシートURLからID抽出
-            if (m) return m[0];
-          }
-        }
-        return null;
-      }
-    }
-    return null;
-  } catch (_) {
-    return null;
-  }
-}
-
+// openPlannerSheet uses shared resolveSpreadsheetIdByStudent from lib/student_resolver.ts
 function openPlannerSheet(req: RowMap): GoogleAppsScript.Spreadsheet.Sheet | null {
   const fid = req.spreadsheet_id || resolveSpreadsheetIdByStudent(req);
   if (!fid) return null;
   const ss = SpreadsheetApp.openById(fid);
-  // 1) 既定名で取得
-  const named = ss.getSheetByName(SHEET_NAME);
-  if (named) return named;
-  // 2) 代替候補名（現場で使われることがある別名）
-  const altNames = ["週間計画", "週刊計画", "週刊管理"]; // ゆらぎ吸収
-  for (const nm of altNames) {
+  // 1) Try shared sheet name variants
+  for (const nm of WEEKLY_SHEET_NAMES) {
     const sh = ss.getSheetByName(nm);
     if (sh) return sh;
   }
-  // 3) スキャン: A4 が 月コード+ID 形式（^\d{3,4}.+）のシートを探す
+  // 2) Scan: find sheet where A4 matches month code + ID pattern (^\d{3,4}.+)
   const sheets = ss.getSheets();
   for (const sh of sheets) {
     try {
