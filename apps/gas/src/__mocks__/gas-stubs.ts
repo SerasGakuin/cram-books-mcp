@@ -84,10 +84,18 @@ const mockCacheService = {
 
 // Global ContentService stub
 const mockContentService = {
-  createTextOutput: vi.fn((text: string) => ({
-    setMimeType: vi.fn().mockReturnThis(),
-    getContent: vi.fn(() => text),
-  })),
+  createTextOutput: vi.fn((text: string) => {
+    let mimeType = "text/plain";
+    const output = {
+      setMimeType: vi.fn((type: GoogleAppsScript.Content.MimeType) => {
+        mimeType = type as unknown as string;
+        return output;
+      }),
+      getContent: vi.fn(() => text),
+      getMimeType: vi.fn(() => mimeType),
+    };
+    return output;
+  }),
   MimeType: {
     JSON: "application/json" as GoogleAppsScript.Content.MimeType,
   },

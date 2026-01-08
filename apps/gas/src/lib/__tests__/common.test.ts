@@ -3,7 +3,7 @@
  * Pure utility functions for response building and string normalization
  */
 import { describe, it, expect } from "vitest";
-import { ok, ng, normalize, toNumberOrNull, ApiResponse } from "../common";
+import { ok, ng, normalize, toNumberOrNull, createJsonResponse, ApiResponse } from "../common";
 
 describe("ok", () => {
   it("should create a success response with operation name", () => {
@@ -153,5 +153,24 @@ describe("toNumberOrNull", () => {
   it("should handle scientific notation", () => {
     expect(toNumberOrNull("1e5")).toBe(100000);
     expect(toNumberOrNull("2.5e-3")).toBe(0.0025);
+  });
+});
+
+describe("createJsonResponse", () => {
+  it("should create a JSON text output from ApiResponse", () => {
+    const response = ok("test", { key: "value" });
+    const result = createJsonResponse(response);
+
+    // Verify ContentService was called correctly
+    expect(result.getContent()).toBe(JSON.stringify(response));
+    expect(result.getMimeType()).toBe("application/json");
+  });
+
+  it("should handle error responses", () => {
+    const response = ng("test", "ERROR", "Something went wrong");
+    const result = createJsonResponse(response);
+
+    expect(result.getContent()).toBe(JSON.stringify(response));
+    expect(result.getMimeType()).toBe("application/json");
   });
 });
