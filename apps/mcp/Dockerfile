@@ -3,7 +3,7 @@ ENV PYTHONUNBUFFERED=1
 WORKDIR /app
 
 # Minimal runtime deps for MCP server
-RUN pip install --no-cache-dir "mcp[cli]" httpx uvicorn fastmcp
+RUN pip install --no-cache-dir "mcp[cli]" httpx uvicorn fastmcp starlette sse-starlette
 
 COPY . /app/
 

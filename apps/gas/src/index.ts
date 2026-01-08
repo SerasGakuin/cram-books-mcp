@@ -45,6 +45,37 @@ export function authorizeOnce(): void {
 }
 
 /**
+ * 定期実行用の関数（週次トリガー推奨）
+ * - 目的: 認証トークンを更新し、GASが自動停止するのを防ぐ
+ * - 設定: GASエディタのトリガー機能で毎週実行するように設定
+ */
+export function keepAlive(): void {
+  try {
+    // スプレッドシートにアクセスして認証を更新
+    const ss = SpreadsheetApp.openById(CONFIG.BOOKS_FILE_ID);
+    const sheet = ss.getSheetByName(CONFIG.BOOKS_SHEET);
+    if (sheet) {
+      // 軽量な操作のみ（データ範囲の確認）
+      const lastRow = sheet.getLastRow();
+      console.log(`keepAlive: Books sheet has ${lastRow} rows`);
+    }
+
+    // 生徒マスターも確認
+    const ssStudents = SpreadsheetApp.openById(CONFIG.STUDENTS_FILE_ID);
+    const sheetStudents = ssStudents.getSheetByName(CONFIG.STUDENTS_SHEET);
+    if (sheetStudents) {
+      const lastRow = sheetStudents.getLastRow();
+      console.log(`keepAlive: Students sheet has ${lastRow} rows`);
+    }
+
+    console.log("keepAlive: Successfully refreshed authentication");
+  } catch (error) {
+    console.error("keepAlive: Error refreshing authentication", error);
+    throw error;
+  }
+}
+
+/**
  * HTTP GET 入口
  * - e.parameters を用いて `book_ids`（複数キー）を配列として解釈
  */

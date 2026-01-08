@@ -39,7 +39,9 @@ gcloud run deploy "${SERVICE}" \
   --region "${REGION}" \
   --allow-unauthenticated \
   --set-env-vars EXEC_URL="${EXEC_URL}" \
-  --timeout=300 \
+  --timeout=3600 \
+  --concurrency=5 \
+  --min-instances=1 \
   --port=8080 \
   --quiet
 

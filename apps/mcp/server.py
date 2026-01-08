@@ -25,10 +25,55 @@ def _script_id() -> str:
         raise RuntimeError("SCRIPT_ID is not set")
     return sid
 
+def _hmac_required() -> bool:
+    return os.environ.get("MCP_HMAC_REQUIRED", "false").lower() in {"1","true","yes","on"}
+
+def _hmac_secret() -> str | None:
+    s = os.environ.get("MCP_HMAC_SECRET")
+    return s if s else None
+
+def _verify_hmac(headers: list[tuple[bytes, bytes]], method: str, path: str) -> tuple[bool, str | None]:
+    """Optional HMAC verification for inbound /mcp requests.
+
+    Expected headers (if enabled):
+      - X-MCP-TS: unix epoch seconds
+      - X-MCP-Sign: hex(HMAC_SHA256(secret, f"{ts}.{method}.{path}"))
+    """
+    secret = _hmac_secret()
+    if not secret:
+        return True, None
+    try:
+        import hmac, hashlib, time
+        ts_b = next((v for k, v in headers if k.lower() == b"x-mcp-ts"), None)
+        sig_b = next((v for k, v in headers if k.lower() == b"x-mcp-sign"), None)
+        if not ts_b or not sig_b:
+            if _hmac_required():
+                return False, "missing headers"
+            return True, None
+        ts = int(ts_b.decode("utf-8"))
+        now = int(time.time())
+        if abs(now - ts) > 300:
+            return False, "timestamp skew"
+        mac = hmac.new(secret.encode("utf-8"), f"{ts}.{method.upper()}.{path}".encode("utf-8"), hashlib.sha256)
+        expected = mac.hexdigest()
+        if not hmac.compare_digest(expected, sig_b.decode("utf-8")):
+            return False, "bad signature"
+        return True, None
+    except Exception as e:
+        if _hmac_required():
+            return False, str(e)
+        return True, None
+
+def _http_client() -> httpx.AsyncClient:
+    """Create a tuned AsyncClient with redirects, retries, and sane timeouts."""
+    timeout = httpx.Timeout(connect=5.0, read=30.0, write=30.0, pool=None)
+    transport = httpx.AsyncHTTPTransport(retries=3)
+    return httpx.AsyncClient(timeout=timeout, follow_redirects=True, transport=transport)
+
 async def _get(params: dict[str, Any] | list[tuple[str, Any]]) -> dict:
     url = _exec_url()
     log("HTTP GET", url, params)
-    async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+    async with _http_client() as client:
         r = await client.get(url, params=params)
         r.raise_for_status()
         return r.json()
@@ -36,7 +81,7 @@ async def _get(params: dict[str, Any] | list[tuple[str, Any]]) -> dict:
 async def _post(json: dict[str, Any]) -> dict:
     url = _exec_url()
     log("HTTP POST", url, json)
-    async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+    async with _http_client() as client:
         r = await client.post(url, json=json)
         r.raise_for_status()
         # Apps Script WebApp may return text/html content-type on redirect chain,
@@ -1137,5 +1182,23 @@ async def planner_guidance() -> dict:
 
 if __name__ == "__main__":
     import uvicorn
-    app = mcp.streamable_http_app()
+    base_app = mcp.streamable_http_app()
+
+    # Lightweight ASGI wrapper for optional HMAC verification
+    async def app(scope, receive, send):
+        if scope.get("type") == "http":
+            path = scope.get("path") or "/"
+            if path.startswith("/mcp"):
+                headers = scope.get("headers") or []
+                method = scope.get("method", "GET")
+                ok, reason = _verify_hmac(headers, method, path)
+                if not ok:
+                    async def _send_json(status: int, body: dict):
+                        import json
+                        await send({"type":"http.response.start","status": status, "headers": [(b"content-type", b"application/json")]})
+                        await send({"type":"http.response.body","body": json.dumps(body).encode("utf-8")})
+                    await _send_json(401, {"ok": False, "error": {"code": "UNAUTHENTICATED", "message": f"HMAC failed: {reason}"}})
+                    return
+        await base_app(scope, receive, send)
+
     uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", "8080")))
