@@ -2,12 +2,7 @@
 Tests for helper functions in lib modules.
 Pure functions that can be tested without mocking Google Sheets.
 """
-import os
 import pytest
-
-# Import helpers from lib modules
-import sys
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from lib.common import normalize, to_number_or_none, ok, ng
 from lib.sheet_utils import norm_header, pick_col, tokenize, parse_monthly_goal, col_letter_to_index, extract_spreadsheet_id

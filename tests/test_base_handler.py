@@ -4,10 +4,6 @@ Tests for BaseHandler abstract class.
 import pytest
 from unittest.mock import MagicMock, patch
 
-import sys
-import os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 from core.base_handler import BaseHandler
 
 

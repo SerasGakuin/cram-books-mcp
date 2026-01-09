@@ -3,16 +3,17 @@ Configuration constants for the MCP server.
 Centralizes spreadsheet IDs, sheet names, and column mappings.
 Ported from apps/gas/src/lib/columns.ts
 """
+from typing import Final
 
 # Master spreadsheet IDs
-BOOKS_MASTER_ID = "1Z0mMUUchd9BT6r5dB6krHjPWETxOJo7pJuf2VrQ_Pvs"
-STUDENTS_MASTER_ID = "1hLQe1TO6bfmdk3kvyV3RNkWmBuHhMfr9y01lIs7FVVI"
+BOOKS_MASTER_ID: Final[str] = "1Z0mMUUchd9BT6r5dB6krHjPWETxOJo7pJuf2VrQ_Pvs"
+STUDENTS_MASTER_ID: Final[str] = "1hLQe1TO6bfmdk3kvyV3RNkWmBuHhMfr9y01lIs7FVVI"
 
 # Sheet names
-BOOKS_SHEET = "参考書マスター"
-STUDENTS_SHEET = "生徒一覧"
-WEEKLY_SHEET = "週間管理"
-MONTHLY_SHEET = "月間管理"
+BOOKS_SHEET: Final[str] = "参考書マスター"
+STUDENTS_SHEET: Final[str] = "生徒一覧"
+WEEKLY_SHEET: Final[str] = "週間管理"
+MONTHLY_SHEET: Final[str] = "月間管理"
 
 # Planner week column mappings (1-indexed week -> column letter for plan cell)
 WEEK_PLAN_COLUMNS = {
@@ -68,7 +69,7 @@ PREFIX_MAP = {
 }
 
 # Books Master sheet column candidates
-BOOK_COLUMNS = {
+BOOK_COLUMNS: Final[dict[str, list[str]]] = {
     "id": ["参考書ID", "ID", "id"],
     "title": ["参考書名", "タイトル", "書名", "title"],
     "subject": ["教科", "科目", "subject"],
@@ -86,7 +87,7 @@ BOOK_COLUMNS = {
 
 # Students Master sheet column candidates
 # Note: The actual sheet has an empty header for the ID column (column 0)
-STUDENT_COLUMNS = {
+STUDENT_COLUMNS: Final[dict[str, list[str]]] = {
     "id": ["", "生徒ID", "ID", "id"],  # Empty string for column with no header
     "comiru_id": ["Comiru生徒番号", "comiru_id"],
     "name": ["名前", "氏名", "生徒名", "name"],

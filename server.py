@@ -21,6 +21,7 @@ from handlers.books import BooksHandler
 from handlers.students import StudentsHandler
 from handlers.planner import PlannerHandler
 from lib.input_parser import coerce_str as _coerce_str, as_list as _as_list
+from lib.errors import bad_request
 
 # Configure transport security to allow Railway domain
 transport_security = None
@@ -68,7 +69,7 @@ async def books_find(query: Any) -> dict:
     """
     q = _coerce_str(query, ("query", "q", "text"))
     if not q:
-        return {"ok": False, "op": "books.find", "error": {"code": "BAD_INPUT", "message": "query is required"}}
+        return bad_request("books.find", "query is required")
 
     sheets = get_sheets_client()
     handler = BooksHandler(sheets)
@@ -104,7 +105,7 @@ async def books_get(book_id: Any = None, book_ids: Any = None) -> dict:
     if single:
         return handler.get(single)
 
-    return {"ok": False, "op": "books.get", "error": {"code": "BAD_INPUT", "message": "book_id or book_ids is required"}}
+    return bad_request("books.get", "book_id or book_ids is required")
 
 
 @mcp.tool()
@@ -179,7 +180,7 @@ async def books_update(book_id: Any, updates: Any = None, confirm_token: str | N
     """
     bid = _coerce_str(book_id, ("book_id", "id"))
     if not bid:
-        return {"ok": False, "op": "books.update", "error": {"code": "BAD_INPUT", "message": "book_id is required"}}
+        return bad_request("books.update", "book_id is required")
 
     sheets = get_sheets_client()
     handler = BooksHandler(sheets)
@@ -189,7 +190,7 @@ async def books_update(book_id: Any, updates: Any = None, confirm_token: str | N
     elif isinstance(updates, dict):
         return handler.update(bid, updates=updates)
     else:
-        return {"ok": False, "op": "books.update", "error": {"code": "BAD_INPUT", "message": "updates is required for preview"}}
+        return bad_request("books.update", "updates is required for preview")
 
 
 @mcp.tool()
@@ -197,7 +198,7 @@ async def books_delete(book_id: Any, confirm_token: str | None = None) -> dict:
     """参考書の削除（二段階: preview → confirm）。"""
     bid = _coerce_str(book_id, ("book_id", "id"))
     if not bid:
-        return {"ok": False, "op": "books.delete", "error": {"code": "BAD_INPUT", "message": "book_id is required"}}
+        return bad_request("books.delete", "book_id is required")
 
     sheets = get_sheets_client()
     handler = BooksHandler(sheets)
@@ -246,7 +247,7 @@ async def students_find(query: Any, limit: int | None = 10, include_all: bool | 
     """生徒を名前で検索。既定は「在塾のみ」。"""
     q = _coerce_str(query, ("query", "q", "text"))
     if not q:
-        return {"ok": False, "op": "students.find", "error": {"code": "BAD_INPUT", "message": "query is required"}}
+        return bad_request("students.find", "query is required")
 
     sheets = get_sheets_client()
     handler = StudentsHandler(sheets)
@@ -278,7 +279,7 @@ async def students_get(student_id: Any = None, student_ids: Any = None) -> dict:
     elif single:
         return handler.get(single)
     else:
-        return {"ok": False, "op": "students.get", "error": {"code": "BAD_INPUT", "message": "student_id or student_ids is required"}}
+        return bad_request("students.get", "student_id or student_ids is required")
 
 
 @mcp.tool()
@@ -316,7 +317,7 @@ async def students_update(student_id: Any, updates: dict[str, Any] | None = None
     """生徒の更新（二段階）。"""
     sid = _coerce_str(student_id, ("student_id", "id"))
     if not sid:
-        return {"ok": False, "op": "students.update", "error": {"code": "BAD_INPUT", "message": "student_id is required"}}
+        return bad_request("students.update", "student_id is required")
 
     sheets = get_sheets_client()
     handler = StudentsHandler(sheets)
@@ -326,7 +327,7 @@ async def students_update(student_id: Any, updates: dict[str, Any] | None = None
     elif isinstance(updates, dict):
         return handler.update(sid, updates=updates)
     else:
-        return {"ok": False, "op": "students.update", "error": {"code": "BAD_INPUT", "message": "updates is required for preview"}}
+        return bad_request("students.update", "updates is required for preview")
 
 
 @mcp.tool()
@@ -334,7 +335,7 @@ async def students_delete(student_id: Any, confirm_token: str | None = None) -> 
     """生徒の削除（二段階）。"""
     sid = _coerce_str(student_id, ("student_id", "id"))
     if not sid:
-        return {"ok": False, "op": "students.delete", "error": {"code": "BAD_INPUT", "message": "student_id is required"}}
+        return bad_request("students.delete", "student_id is required")
 
     sheets = get_sheets_client()
     handler = StudentsHandler(sheets)
@@ -350,7 +351,7 @@ async def planner_ids_list(student_id: Any = None, spreadsheet_id: Any = None) -
     spid = _coerce_str(spreadsheet_id, ("spreadsheet_id", "sheet_id", "id"))
 
     if not (sid or spid):
-        return {"ok": False, "op": "planner.ids_list", "error": {"code": "BAD_INPUT", "message": "student_id or spreadsheet_id is required"}}
+        return bad_request("planner.ids_list", "student_id or spreadsheet_id is required")
 
     sheets = get_sheets_client()
     handler = PlannerHandler(sheets)
@@ -372,7 +373,7 @@ async def planner_dates_get(student_id: Any = None, spreadsheet_id: Any = None) 
 async def planner_dates_set(start_date: str, student_id: Any = None, spreadsheet_id: Any = None) -> dict:
     """D1 の週開始日を設定。"""
     if not start_date:
-        return {"ok": False, "op": "planner.dates.set", "error": {"code": "BAD_INPUT", "message": "start_date is required"}}
+        return bad_request("planner.dates.set", "start_date is required")
 
     sid = _coerce_str(student_id, ("student_id", "id"))
     spid = _coerce_str(spreadsheet_id, ("spreadsheet_id", "sheet_id", "id"))
@@ -479,7 +480,7 @@ async def planner_plan_create(
     - overwrite: 省略時は false（空欄のみ）
     """
     if not isinstance(items, list) or not items:
-        return {"ok": False, "op": "planner.plan.create", "error": {"code": "BAD_INPUT", "message": "items[] is required"}}
+        return bad_request("planner.plan.create", "items[] is required")
 
     sid = _coerce_str(student_id, ("student_id", "id"))
     spid = _coerce_str(spreadsheet_id, ("spreadsheet_id", "sheet_id", "id"))

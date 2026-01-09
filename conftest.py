@@ -12,6 +12,53 @@ from unittest.mock import MagicMock, patch
 os.environ.setdefault("GOOGLE_CREDENTIALS_JSON", '{"type": "service_account", "project_id": "test"}')
 
 
+# ========== Response Assertion Helpers ==========
+
+class ResponseAssertions:
+    """Helper class for asserting API response structures."""
+
+    @staticmethod
+    def assert_success(response: dict, op: str | None = None) -> dict:
+        """Assert response is successful and return data.
+
+        Args:
+            response: The response dict to check
+            op: Optional operation name to verify
+
+        Returns:
+            The data dict from the response
+        """
+        assert response.get("ok") is True, f"Expected success, got: {response}"
+        if op:
+            assert response.get("op") == op, f"Expected op={op}, got {response.get('op')}"
+        return response.get("data", {})
+
+    @staticmethod
+    def assert_error(response: dict, code: str, op: str | None = None) -> dict:
+        """Assert response is an error with given code.
+
+        Args:
+            response: The response dict to check
+            code: Expected error code
+            op: Optional operation name to verify
+
+        Returns:
+            The error dict from the response
+        """
+        assert response.get("ok") is False, f"Expected error, got success: {response}"
+        assert response.get("error", {}).get("code") == code, \
+            f"Expected error code {code}, got {response.get('error', {}).get('code')}"
+        if op:
+            assert response.get("op") == op, f"Expected op={op}, got {response.get('op')}"
+        return response.get("error", {})
+
+
+@pytest.fixture
+def assertions():
+    """Fixture providing response assertion helpers."""
+    return ResponseAssertions()
+
+
 @pytest.fixture
 def mock_sheets_client():
     """

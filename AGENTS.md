@@ -296,7 +296,7 @@ Claude: その参考書の詳細を教えてください
    async def books_find(query: Any) -> dict:
        q = _coerce_str(query, ("query", "q"))
        if not q:
-           return {"ok": False, "error": {"code": "BAD_INPUT", "message": "query is required"}}
+           return {"ok": False, "error": {"code": "BAD_REQUEST", "message": "query is required"}}
        return handlers.books.books_find(get_sheets_client(), q)
    ```
 

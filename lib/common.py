@@ -45,14 +45,14 @@ def to_number_or_none(val: Any) -> int | float | None:
         return None
 
 
-def ok(op: str, data: dict | None = None) -> dict:
+def ok(op: str, data: dict[str, Any] | None = None) -> dict[str, Any]:
     """Create a successful response."""
     return {"ok": True, "op": op, "data": data or {}}
 
 
-def ng(op: str, code: str, message: str, extra: dict | None = None) -> dict:
+def ng(op: str, code: str, message: str, extra: dict[str, Any] | None = None) -> dict[str, Any]:
     """Create an error response."""
-    error = {"code": code, "message": message}
+    error: dict[str, Any] = {"code": code, "message": message}
     if extra:
         error.update(extra)
     return {"ok": False, "op": op, "error": error}
