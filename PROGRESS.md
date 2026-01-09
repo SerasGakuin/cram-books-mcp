@@ -242,3 +242,47 @@
 
 #### テスト
 - 全160テスト通過
+
+### refactor: Phase 3 OOP Handler Classes (TDD)
+
+#### BaseHandler抽象クラス
+- `core/base_handler.py`: 全ハンドラー共通の抽象基底クラス
+  - シート読み込みとエラーハンドリング
+  - COLUMN_SPECによる列インデックスマッピング
+  - セルアクセスと行検索ユーティリティ
+  - filter_by_conditions (where/contains)
+  - レスポンスヘルパー (_ok/_error)
+  - PreviewCacheの共有管理
+- `core/__init__.py`: BaseHandlerのエクスポート
+- 15件のテスト追加（`test_base_handler.py`）
+
+#### BooksHandler
+- `handlers/books_handler.py`: BaseHandlerパターンを活用
+  - IDF重み付き検索（教科ボーナス付き）
+  - 子行からの章パース
+  - 二段階CRUD操作（preview/confirm）
+- 30件のテスト追加（`test_books_handler.py`）
+
+#### StudentsHandler
+- `handlers/students_handler.py`: 生徒操作用ハンドラー
+  - シンプルなファジー検索
+  - プランナーシートIDのリンクからの抽出
+  - 二段階CRUD操作
+- 31件のテスト追加（`test_students_handler.py`）
+
+#### PlannerHandler
+- `handlers/planner_handler.py`: プランナー操作用ハンドラー
+  - 週間プランナー操作（ids, dates, metrics, plan）
+  - 月間プランナーフィルタリング
+  - 書籍コードパース（month_code + book_id）
+- 21件のテスト追加（`test_planner_handler.py`）
+
+#### テスト
+- 新規97テスト追加
+- 全257テスト通過
+- TDD（テスト駆動開発）で実装
+
+#### 次のステップ
+- server.pyをハンドラー登録パターンに更新（オプション）
+- 既存関数を新クラスにルーティング
+
