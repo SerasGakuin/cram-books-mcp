@@ -28,6 +28,7 @@
 │                  Core Layer                      │
 │                   (core/)                        │
 │  - BaseHandler: 共通CRUD機能                     │
+│  - TwoPhaseOperationMixin: プレビュー→確認パターン│
 │  - PreviewCache: プレビュー/確認キャッシュ       │
 └─────────────────────────────────────────────────┘
                        │
@@ -58,7 +59,8 @@ cram-books-mcp/
 ├── conftest.py            # pytest フィクスチャ
 │
 ├── core/                  # コア機能
-│   └── base_handler.py    # BaseHandler（共通CRUD）
+│   ├── base_handler.py    # BaseHandler（共通CRUD）
+│   └── two_phase_mixin.py # TwoPhaseOperationMixin
 │
 ├── handlers/              # ドメインハンドラー（OOP）
 │   ├── __init__.py        # Handler export
@@ -75,16 +77,19 @@ cram-books-mcp/
 │
 ├── lib/                   # ユーティリティ
 │   ├── common.py          # ok/ng, normalize等
+│   ├── types.py           # 型定義（Response, SheetValues等）
+│   ├── errors.py          # エラーヘルパー（ErrorCode列挙）
 │   ├── sheet_utils.py     # シート操作ヘルパー
 │   ├── id_rules.py        # ID生成ルール
 │   ├── input_parser.py    # 入力検証
 │   └── preview_cache.py   # PreviewCache class
 │
-└── tests/                 # テスト（257件）
+└── tests/                 # テスト（280件）
     ├── conftest.py        # フィクスチャ
     ├── test_helpers.py    # lib/のテスト
     ├── test_base_handler.py
     ├── test_preview_cache.py
+    ├── test_two_phase_mixin.py  # TwoPhaseOperationMixinテスト
     ├── test_books_handler.py
     ├── test_books_tools.py
     ├── test_students_handler.py
@@ -116,15 +121,15 @@ async def books_find(query: str) -> dict:
 ビジネスロジックを含むOOPハンドラー。
 
 ```python
-class BooksHandler(BaseHandler, SearchMixin):
+class BooksHandler(BaseHandler, SearchMixin, TwoPhaseOperationMixin):
     """参考書ハンドラー"""
 
     def find(self, query: str) -> dict[str, Any]:
         """曖昧検索"""
         ...
 
-    def get(self, book_id: str) -> dict[str, Any]:
-        """詳細取得"""
+    def update(self, book_id: str, updates: dict, confirm_token: str | None) -> dict[str, Any]:
+        """二段階更新（プレビュー→確認）"""
         ...
 ```
 
@@ -158,6 +163,21 @@ class BaseHandler:
         ...
 ```
 
+#### TwoPhaseOperationMixin
+
+```python
+class TwoPhaseOperationMixin:
+    """二段階操作（プレビュー→確認）のMixin"""
+
+    def store_preview(self, op: str, cache_prefix: str, entity_id: str, payload: dict, preview_data: dict) -> dict:
+        """プレビューを保存し確認トークンを返す"""
+        ...
+
+    def validate_confirm(self, op: str, cache_prefix: str, entity_id: str, confirm_token: str) -> ValidateResult:
+        """確認トークンを検証"""
+        ...
+```
+
 #### PreviewCache
 
 ```python
@@ -180,6 +200,8 @@ class PreviewCache:
 | モジュール | 機能 |
 |-----------|------|
 | common.py | ok/ng レスポンス, normalize, to_number_or_none |
+| types.py | 型定義（SuccessResponse, ErrorResponse, SheetValues等） |
+| errors.py | ErrorCode列挙, bad_request, not_found等ヘルパー |
 | sheet_utils.py | norm_header, pick_col, tokenize, extract_spreadsheet_id |
 | id_rules.py | decide_prefix, next_id_for_prefix |
 | input_parser.py | InputParser（入力検証） |
@@ -278,14 +300,15 @@ class BooksHandler(BaseHandler, SearchMixin):
 | Lib | test_helpers.py | 純粋関数 |
 | Core | test_base_handler.py, test_preview_cache.py | 基盤機能 |
 
-### テスト数（257件）
+### テスト数（280件）
 
 | カテゴリ | 件数 |
 |---------|------|
 | lib/テスト | 66 |
 | ハンドラーテスト | 96 |
 | ツールテスト | 87 |
-| コアテスト | 8 |
+| コアテスト | 20 |
+| Mixinテスト | 12 |
 
 ## 新機能追加手順
 

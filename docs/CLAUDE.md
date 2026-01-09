@@ -150,25 +150,38 @@ cram-books-mcp/
 ├── sheets_client.py       # Google Sheets APIクライアント
 ├── conftest.py            # pytest フィクスチャ
 ├── core/                  # コア機能
-│   └── base_handler.py    # BaseHandler（共通CRUD）
+│   ├── base_handler.py    # BaseHandler（共通CRUD）
+│   └── two_phase_mixin.py # TwoPhaseOperationMixin（プレビュー→確認）
 ├── handlers/              # ドメインハンドラー（OOP）
 │   ├── __init__.py        # BooksHandler等のexport
 │   ├── books/
-│   │   ├── handler.py     # BooksHandler（CRUD）
+│   │   ├── handler.py     # BooksHandler（CRUD + TwoPhase）
 │   │   └── search.py      # SearchMixin（IDF検索）
 │   ├── students/
-│   │   └── handler.py     # StudentsHandler
+│   │   └── handler.py     # StudentsHandler（CRUD + TwoPhase）
 │   └── planner/
 │       └── handler.py     # PlannerHandler（週間・月間）
 ├── lib/                   # ユーティリティ
 │   ├── common.py          # ok/ng, normalize等
+│   ├── types.py           # 型定義（Response, SheetValues等）
+│   ├── errors.py          # エラーヘルパー（ErrorCode列挙）
 │   ├── sheet_utils.py     # シート操作ヘルパー
 │   ├── id_rules.py        # ID生成ルール
 │   ├── input_parser.py    # 入力検証
 │   └── preview_cache.py   # PreviewCache class
-└── tests/                 # テスト（257件）
+├── docs/                  # ドキュメント
+│   ├── README.md          # ドキュメント一覧
+│   ├── ARCHITECTURE.md    # アーキテクチャ概要
+│   ├── TESTING.md         # テストガイド
+│   ├── AGENTS.md          # LLMエージェント向けAPI仕様
+│   ├── CLAUDE.md          # Claude Code開発ガイドライン
+│   ├── CONTRIBUTING.md    # 貢献ガイド
+│   ├── CHANGELOG.md       # 変更履歴
+│   └── specs/             # 仕様書
+└── tests/                 # テスト（280件）
     ├── conftest.py        # フィクスチャ
     ├── test_helpers.py    # lib/のテスト
+    ├── test_two_phase_mixin.py  # Mixinテスト
     ├── test_*_handler.py  # ハンドラー単体テスト
     └── test_*_tools.py    # ツール統合テスト
 ```

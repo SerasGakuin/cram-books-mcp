@@ -9,8 +9,9 @@
 | lib/（ヘルパー） | 66 | 純粋関数 |
 | handlers（ハンドラー） | 96 | OOPハンドラークラス |
 | tools（ツール） | 87 | MCPツール統合 |
-| core（コア） | 8 | BaseHandler, PreviewCache |
-| **合計** | **257** | ~85% カバレッジ |
+| core（コア） | 20 | BaseHandler, PreviewCache |
+| mixin（Mixin） | 12 | TwoPhaseOperationMixin |
+| **合計** | **280** | ~85% カバレッジ |
 
 ## テスト実行
 
@@ -42,6 +43,7 @@ tests/
 ├── test_helpers.py          # lib/のテスト (66件)
 ├── test_base_handler.py     # core/base_handler (15件)
 ├── test_preview_cache.py    # lib/preview_cache (8件)
+├── test_two_phase_mixin.py  # core/two_phase_mixin (12件)
 ├── test_books_handler.py    # handlers/books (30件)
 ├── test_books_tools.py      # books MCPツール (25件)
 ├── test_students_handler.py # handlers/students (31件)
@@ -126,6 +128,28 @@ class TestPreviewCache:
         data = cache.get("test", token)
 
         assert data == {"key": "value"}
+```
+
+### 5. Mixinテスト
+
+TwoPhaseOperationMixinの二段階操作をテスト。
+
+```python
+# tests/test_two_phase_mixin.py
+class TestTwoPhasePreview:
+    def test_store_preview_returns_confirmation_response(self):
+        handler = MockHandler()
+        response = handler.store_preview(
+            op="test.update",
+            cache_prefix="test_upd",
+            entity_id="e001",
+            payload={"field": "value"},
+            preview_data={"changes": {"field": {"from": "old", "to": "new"}}},
+        )
+
+        assert response["ok"] is True
+        assert response["data"]["requires_confirmation"] is True
+        assert "confirm_token" in response["data"]
 ```
 
 ## テストカテゴリ詳細

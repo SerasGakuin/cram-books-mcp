@@ -71,16 +71,25 @@ cram-books-mcp/
 ├── env_loader.py          # 環境変数/クレデンシャル読み込み
 ├── conftest.py            # pytest フィクスチャ
 ├── core/                  # コア機能
-│   └── base_handler.py    # BaseHandler（共通CRUD）
+│   ├── base_handler.py    # BaseHandler（共通CRUD）
+│   └── two_phase_mixin.py # TwoPhaseOperationMixin
 ├── handlers/              # ビジネスロジック（OOPハンドラー）
-│   ├── books/             # BooksHandler + SearchMixin
-│   ├── students/          # StudentsHandler
+│   ├── books/             # BooksHandler + SearchMixin + TwoPhase
+│   ├── students/          # StudentsHandler + TwoPhase
 │   └── planner/           # PlannerHandler
 ├── lib/                   # 共通ユーティリティ
-├── tests/                 # pytest テスト（257件）
-├── docs/
+│   ├── common.py          # ok/ng, normalize等
+│   ├── types.py           # 型定義
+│   ├── errors.py          # エラーヘルパー
+│   └── ...                # その他ユーティリティ
+├── tests/                 # pytest テスト（280件）
+├── docs/                  # ドキュメント
+│   ├── README.md          # ドキュメント一覧
 │   ├── ARCHITECTURE.md    # アーキテクチャ概要
-│   └── TESTING.md         # テストガイド
+│   ├── TESTING.md         # テストガイド
+│   ├── AGENTS.md          # LLMエージェント向けAPI仕様
+│   ├── CLAUDE.md          # Claude Code開発ガイドライン
+│   └── specs/             # 仕様書
 ├── Dockerfile
 ├── Procfile
 ├── pyproject.toml
@@ -133,7 +142,7 @@ git push origin main
 
 | Component | Tests | Coverage |
 |-----------|-------|----------|
-| MCP全体（handlers + tools + lib） | 257 | ~85% |
+| MCP全体（handlers + tools + lib） | 280 | ~85% |
 
 ```bash
 # テスト実行
