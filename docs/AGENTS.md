@@ -197,6 +197,29 @@ planner_monthly_filter(
 }
 ```
 
+### Monthplan（今月プラン）
+
+「今月プラン」シートの読み書きを行う。各参考書の週ごとの学習時間を計画し、「週間管理」に自動反映される。
+
+| ツール | 説明 | 主要引数 |
+|--------|------|---------|
+| `monthplan_get` | 今月プランの内容取得（週ごとの時間と集計情報付き） | `student_id?`, `spreadsheet_id?` |
+| `monthplan_set` | 週ごとの時間をバッチ書き込み | `items[]`, `student_id?`, `spreadsheet_id?` |
+
+**monthplan_get のレスポンス:**
+- `items[]`: 各参考書の週ごとの時間と行合計
+  - `row`, `book_id`, `subject`, `title`
+  - `weeks`: `{1: 時間, 2: 時間, ...}`
+  - `row_total`: その参考書の今月合計
+- `week_totals`: 各週の全参考書合計 `{1: 合計, 2: 合計, ...}`
+- `grand_total`: 全体の合計時間
+- `count`: 参考書数
+
+**monthplan_set の items 形式:**
+```json
+[{"row": 4, "week": 1, "hours": 3}, {"row": 5, "week": 2, "hours": 2}]
+```
+
 ## 週間管理の最短フロー
 
 1. **現状把握**: `planner_plan_get(student_id=...)`

@@ -578,6 +578,57 @@ async def planner_monthly_filter(
     )
 
 
+@mcp.tool()
+async def monthplan_get(student_id: Any = None, spreadsheet_id: Any = None) -> dict:
+    """「今月プラン」シートの内容を取得（週ごとの時間と集計情報付き）。
+
+    Returns:
+        items: 各参考書の週ごとの時間 (weeks: {1: 3, 2: 2, ...}) と行合計 (row_total)
+        week_totals: 各週の全参考書合計時間 {1: 15, 2: 12, ...}
+        grand_total: 全体の合計時間
+        count: 参考書数
+    """
+    sid, spid = resolve_planner_context(student_id, spreadsheet_id)
+
+    if not (sid or spid):
+        return bad_request("planner.monthplan.get", "student_id or spreadsheet_id is required")
+
+    sheets = get_sheets_client()
+    handler = PlannerHandler(sheets)
+    return handler.monthplan_get(student_id=sid, spreadsheet_id=spid)
+
+
+@mcp.tool()
+async def monthplan_set(
+    items: list[dict],
+    student_id: Any = None,
+    spreadsheet_id: Any = None,
+) -> dict:
+    """「今月プラン」シートに週ごとの時間をバッチ書き込み。
+
+    引数:
+        items: [{row: int, week: int (1-5), hours: int}, ...]
+            - row: 行番号 (4-30)
+            - week: 週番号 (1-5)
+            - hours: 時間（整数）
+
+    Returns:
+        updated: True
+        results: 各アイテムの処理結果 [{row, week, ok, cell?, error?}, ...]
+    """
+    sid, spid = resolve_planner_context(student_id, spreadsheet_id)
+
+    if not (sid or spid):
+        return bad_request("planner.monthplan.set", "student_id or spreadsheet_id is required")
+
+    if not isinstance(items, list):
+        return bad_request("planner.monthplan.set", "items must be a list")
+
+    sheets = get_sheets_client()
+    handler = PlannerHandler(sheets)
+    return handler.monthplan_set(items=items, student_id=sid, spreadsheet_id=spid)
+
+
 # ===== Utility Tools =====
 
 @mcp.tool()
