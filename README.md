@@ -1,16 +1,18 @@
 # CRAM Books MCP
 
-LLM と Google スプレッドシート（参考書マスター／生徒マスター／スピードプランナー）を安全に接続するためのモノレポです。GAS（Google Apps Script）がWeb APIを提供し、MCP（Model Context Protocol）サーバーがHTTP/SSE経由で取りまとめます。
+LLM と Google スプレッドシート（参考書マスター／生徒マスター／スピードプランナー）を安全に接続するためのモノレポです。MCP（Model Context Protocol）サーバーがGoogle Sheets APIを直接呼び出し、Service Account認証で安定稼働します。
 
 ```
 [ユーザー/Claude]
    │  (MCP over HTTP/SSE)
    ▼
-[Cloud Run: MCP Server]  ←(ENV)→  EXEC_URL
-   │  (HTTP GET/POST, JSON)
+[Railway: MCP Server]
+   │  (Google Sheets API, Service Account認証)
    ▼
-[Apps Script (WebApp)] ──→ [Google Sheets: Books / Students / Planner]
+[Google Sheets: Books / Students / Planner]
 ```
+
+> **Note**: 2026-01-09にGAS WebApp経由からGoogle Sheets API直接アクセスに移行しました。これによりGAS WebAppの「Access Denied」問題やCloud Runの課金問題を解消し、安定した運用が可能になりました。
 
 ---
 
@@ -63,91 +65,101 @@ LLM と Google スプレッドシート（参考書マスター／生徒マス�
 ### 2.1 ディレクトリ構成
 ```
 apps/
- ├─ gas/        # GAS (TypeScript → esbuild → dist)
- │   ├─ src/    # ルーター/ハンドラ/ユーティリティ/テスト
- │   └─ dist/   # clasp push 対象（生成物）
- └─ mcp/        # MCP Server (Python FastMCP)
-     ├─ server.py
-     ├─ tests/run_tests.py
-     └─ Dockerfile
+ ├─ gas/        # [アーカイブ] GAS (TypeScript) - 参照用に保持
+ └─ mcp/        # MCP Server (Python FastMCP + Google Sheets API)
+     ├─ server.py          # MCPツール定義
+     ├─ sheets_client.py   # Google Sheets APIラッパー
+     ├─ config.py          # 定数定義（シートID、列マッピング等）
+     ├─ env_loader.py      # 環境変数/クレデンシャル読み込み
+     ├─ handlers/          # ビジネスロジック
+     │   ├─ books.py
+     │   ├─ students.py
+     │   ├─ planner.py
+     │   └─ planner_monthly.py
+     ├─ lib/               # 共通ユーティリティ
+     ├─ tests/             # pytest テスト
+     ├─ Dockerfile
+     ├─ railway.json       # Railway設定
+     └─ Procfile
 scripts/
- ├─ deploy_mcp.sh         # Cloud Run デプロイ
- └─ gcloud_env.example    # PROJECT_ID/REGION/SERVICE 例
+ └─ deploy_mcp.sh         # Railway デプロイ
 docs/
  ├─ speed_planner_weekly.md
  └─ planner_monthly.md
 ```
 
 ### 2.2 依存環境
-- Node.js 18+ / npm
 - Python 3.12+ / `uv`
-- @google/clasp（GAS）、gcloud（Cloud Run）
+- Railway CLI（デプロイ用）: `npm install -g @railway/cli`
 
-### 2.3 GAS（WebApp）
-```
-cd apps/gas
-npm install
-npm run clasp:login
+### 2.3 Service Account設定（初回のみ）
+1. GCPコンソールでService Accountを作成
+2. Google Sheets API / Google Drive APIを有効化
+3. JSONキーをダウンロード
+4. 対象スプレッドシートのフォルダをService Accountと共有（編集者権限）
 
-# 既存WebAppを dist を正として clone/pull する場合:
-clasp clone <SCRIPT_ID> --rootDir dist
-
-# ビルド→push→デプロイ（固定デプロイID運用推奨）
-npm run build
-clasp push
-clasp deployments            # 既存ID確認
-clasp deploy -i <DEPLOY_ID>  # 既存IDへ再デプロイ
-```
-- WebApp 公開: 実行ユーザー=自分 / アクセス=全員（匿名）
-- ENV は ScriptProperties を併用（必要時）
-
-### 2.4 MCP（Cloud Run）
-```
-# ローカル
+### 2.4 MCP Server（ローカル）
+```bash
 cd apps/mcp
+
+# .envファイルを作成（.env.exampleを参考）
+cp .env.example .env
+# GOOGLE_CREDENTIALS_FILE にJSONキーのパスを設定
+
+# 起動
 uv run python server.py   # http://localhost:8080/mcp
 
-# デプロイ（EXEC_URLは apps/gas/.prod_deploy_id を参照）
-cd ../..
-source scripts/gcloud_env.example
-scripts/deploy_mcp.sh
+# ヘルスチェック
+curl http://localhost:8080/healthz
 ```
-- ENV: `EXEC_URL`（必須, GAS WebAppの/exec）/ `SCRIPT_ID`（任意: Execution API 実験用）
 
-### 2.5 テスト
+### 2.5 MCP Server（Railwayデプロイ）
+```bash
+# Railway CLIインストール
+npm install -g @railway/cli
+
+# ログイン＆プロジェクトリンク
+railway login
+cd apps/mcp
+railway link
+
+# 環境変数設定
+railway variables set GOOGLE_CREDENTIALS_JSON="$(cat /path/to/service-account.json)"
+
+# デプロイ
+railway up
+# または: scripts/deploy_mcp.sh
+```
+- ENV: `GOOGLE_CREDENTIALS_JSON`（必須）または `GOOGLE_CREDENTIALS_FILE`（ローカル用）
+
+### 2.6 テスト
 
 > 詳細は [docs/TESTING.md](docs/TESTING.md) を参照
 
 | Component | Tests | Coverage |
 |-----------|-------|----------|
-| GAS lib/ + handlers/ | 201 | ~86% |
-| MCP helpers + tools | 137 | ~70% |
-| **Total** | **338** | |
+| MCP helpers + tools | 141 | ~70% |
 
 ```bash
-# GAS
-cd apps/gas && npm test              # または npm run test:coverage
-
 # MCP
 cd apps/mcp && uv run pytest tests/  # または --cov=.
 ```
 
-### 2.6 CI/CD（GitHub Actions）
-- **test.yml**: PR/push時に自動テスト（GAS: Vitest, MCP: pytest）
+### 2.7 CI/CD（GitHub Actions）
+- **test.yml**: PR/push時に自動テスト（pytest）
 - **deploy.yml**: 手動またはコミットメッセージトリガーでデプロイ
-  - `[deploy-gas]`: GASをデプロイ
-  - `[deploy-mcp]`: Cloud Runにデプロイ
-  - 必要シークレット: `CLASP_CREDENTIALS`, `GAS_DEPLOY_ID`, `WIF_PROVIDER`, `WIF_SERVICE_ACCOUNT`, `CLOUD_RUN_SERVICE`, `CLOUD_RUN_REGION`, `EXEC_URL`
+  - `[deploy-mcp]`: Railwayにデプロイ
+  - 必要シークレット: `RAILWAY_TOKEN`
 
-### 2.7 Claude / ChatGPT
+### 2.8 Claude / ChatGPT
 - Claude: 本mainの多機能MCPをそのまま利用（任意ツール呼び出し）
 - ChatGPT: コネクタの仕様上 `search`/`fetch` のみ。別ブランチで最小I/Fを用意（詳細は AGENTS.md の「ChatGPT コネクタ対応」）
 
-### 2.8 トラブルシューティング
-- 302/303: WebAppのリダイレクト特性。HTTPクライアントは follow_redirects を有効化
+### 2.9 トラブルシューティング
 - /mcp 直叩きは 406: SSE必須の正常応答
-- `EXEC_URL is not set`: Cloud Run の環境変数に設定
-- pickCol エラー: GAS 側をビルド→push→再デプロイ
+- `GOOGLE_CREDENTIALS_JSON not set`: Railway環境変数またはローカル.envを確認
+- `Permission denied`: Service AccountがSpreadsheetに共有されているか確認
+- APIレート制限: Google Sheets APIの制限（100リクエスト/100秒/ユーザー）に注意
 
 ---
 
