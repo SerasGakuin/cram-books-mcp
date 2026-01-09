@@ -1,95 +1,31 @@
-import os, sys, httpx
-from typing import Any, Iterable
+"""
+CRAM Books MCP Server
+
+Connects Claude to Google Sheets via direct Google Sheets API access.
+No longer depends on GAS WebApp intermediary.
+"""
+import os
+import sys
+from typing import Any
+
 try:
-    from .exec_api import scripts_run  # when running as a package
-except Exception:
-    from exec_api import scripts_run    # when running as a script
-try:
-    from mcp.server.fastmcp import FastMCP  # newer mcp package provides this helper
-except Exception:
-    from fastmcp import FastMCP  # fallback to external fastmcp package
+    from mcp.server.fastmcp import FastMCP
+except ImportError:
+    from fastmcp import FastMCP
+
+# Import handlers (direct Google Sheets API access)
+from sheets_client import get_sheets_client
+from handlers import books as books_handler
+from handlers import students as students_handler
+from handlers import planner as planner_handler
+from handlers import planner_monthly as planner_monthly_handler
 
 mcp = FastMCP("cram-books")
 
-def log(*a): print(*a, file=sys.stderr, flush=True)
 
-def _exec_url() -> str:
-    url = os.environ.get("EXEC_URL")
-    if not url:
-        raise RuntimeError("EXEC_URL is not set")
-    return url
+def log(*a):
+    print(*a, file=sys.stderr, flush=True)
 
-def _script_id() -> str:
-    sid = os.environ.get("SCRIPT_ID")
-    if not sid:
-        raise RuntimeError("SCRIPT_ID is not set")
-    return sid
-
-def _hmac_required() -> bool:
-    return os.environ.get("MCP_HMAC_REQUIRED", "false").lower() in {"1","true","yes","on"}
-
-def _hmac_secret() -> str | None:
-    s = os.environ.get("MCP_HMAC_SECRET")
-    return s if s else None
-
-def _verify_hmac(headers: list[tuple[bytes, bytes]], method: str, path: str) -> tuple[bool, str | None]:
-    """Optional HMAC verification for inbound /mcp requests.
-
-    Expected headers (if enabled):
-      - X-MCP-TS: unix epoch seconds
-      - X-MCP-Sign: hex(HMAC_SHA256(secret, f"{ts}.{method}.{path}"))
-    """
-    secret = _hmac_secret()
-    if not secret:
-        return True, None
-    try:
-        import hmac, hashlib, time
-        ts_b = next((v for k, v in headers if k.lower() == b"x-mcp-ts"), None)
-        sig_b = next((v for k, v in headers if k.lower() == b"x-mcp-sign"), None)
-        if not ts_b or not sig_b:
-            if _hmac_required():
-                return False, "missing headers"
-            return True, None
-        ts = int(ts_b.decode("utf-8"))
-        now = int(time.time())
-        if abs(now - ts) > 300:
-            return False, "timestamp skew"
-        mac = hmac.new(secret.encode("utf-8"), f"{ts}.{method.upper()}.{path}".encode("utf-8"), hashlib.sha256)
-        expected = mac.hexdigest()
-        if not hmac.compare_digest(expected, sig_b.decode("utf-8")):
-            return False, "bad signature"
-        return True, None
-    except Exception as e:
-        if _hmac_required():
-            return False, str(e)
-        return True, None
-
-def _http_client() -> httpx.AsyncClient:
-    """Create a tuned AsyncClient with redirects, retries, and sane timeouts."""
-    timeout = httpx.Timeout(connect=5.0, read=30.0, write=30.0, pool=None)
-    transport = httpx.AsyncHTTPTransport(retries=3)
-    return httpx.AsyncClient(timeout=timeout, follow_redirects=True, transport=transport)
-
-async def _get(params: dict[str, Any] | list[tuple[str, Any]]) -> dict:
-    url = _exec_url()
-    log("HTTP GET", url, params)
-    async with _http_client() as client:
-        r = await client.get(url, params=params)
-        r.raise_for_status()
-        return r.json()
-
-async def _post(json: dict[str, Any]) -> dict:
-    url = _exec_url()
-    log("HTTP POST", url, json)
-    async with _http_client() as client:
-        r = await client.post(url, json=json)
-        r.raise_for_status()
-        # Apps Script WebApp may return text/html content-type on redirect chain,
-        # but body should be JSON string. Attempt to parse.
-        try:
-            return r.json()
-        except Exception:
-            return {"ok": False, "error": {"code": "BAD_JSON", "message": r.text[:500]}}
 
 def _strip_quotes(s: str) -> str:
     s = s.strip()
@@ -97,43 +33,42 @@ def _strip_quotes(s: str) -> str:
         return s[1:-1]
     return s
 
+
 def _coerce_str(x: Any, keys: tuple[str, ...] = ()) -> str | None:
-    if isinstance(x, str): return _strip_quotes(x)
+    if isinstance(x, str):
+        return _strip_quotes(x)
     if isinstance(x, dict):
         for k in keys:
             v = x.get(k)
-            if isinstance(v, str): return _strip_quotes(v)
+            if isinstance(v, str):
+                return _strip_quotes(v)
     return None
 
-def _norm_header(s: str) -> str:
-    return s.strip().lower().replace("\u3000", " ").replace(" ", "")
 
-def _pick_col(headers: list[str], candidates: Iterable[str]) -> int:
-    hn = [_norm_header(h) for h in headers]
-    for c in candidates:
-        k = _norm_header(c)
-        try:
-            i = hn.index(k)
-            return i
-        except ValueError:
-            continue
-    return -1
+def _as_list(x: Any, id_key: str = "id") -> list[str]:
+    """Convert input to a list of IDs."""
+    if x is None:
+        return []
+    if isinstance(x, (list, tuple)):
+        out = []
+        for v in x:
+            if isinstance(v, str):
+                out.append(_strip_quotes(v))
+            elif isinstance(v, dict):
+                s = _coerce_str(v, (id_key, "id"))
+                if s:
+                    out.append(s)
+        return out
+    if isinstance(x, str):
+        return [_strip_quotes(x)]
+    return []
 
-# --- Simple in-memory preview cache for propose→confirm ---
-_PREVIEW_CACHE: dict[str, dict] = {}
-def _preview_put(payload: dict) -> str:
-    import uuid
-    token = str(uuid.uuid4())
-    _PREVIEW_CACHE[token] = payload
-    return token
-def _preview_get(token: str) -> dict | None:
-    return _PREVIEW_CACHE.get(token)
-def _preview_pop(token: str) -> dict | None:
-    return _PREVIEW_CACHE.pop(token, None)
+
+# ===== Books Tools =====
 
 @mcp.tool()
 async def books_find(query: Any) -> dict:
-    """参考書を曖昧検索します（GAS WebApp: books.find）。
+    """参考書を曖昧検索します。
 
     引数:
     - query: 検索語（必須）。例: "青チャート"、"現代文" など。
@@ -148,23 +83,23 @@ async def books_find(query: Any) -> dict:
       "op": "books.find",
       "data": {
         "query": "青チャート",
-        "candidates": [{"book_id":"gMB017","title":"…","subject":"数学","score":0.95,"reason":"phrase"}],
+        "candidates": [{"book_id":"gMB017","title":"…","subject":"数学","score":0.95}],
         "top": { … },
         "confidence": 0.68
       }
     }
-
-    注意:
-    - スコア順で候補を返します。上位のみを採用したければ LLM 側で score/confidence を見てください。
     """
-    q = _coerce_str(query, ("query","q","text"))
+    q = _coerce_str(query, ("query", "q", "text"))
     if not q:
-        return {"ok": False, "op":"books.find","error":{"code":"BAD_INPUT","message":"query is required"}}
-    return await _get({"op":"books.find","query":q})
+        return {"ok": False, "op": "books.find", "error": {"code": "BAD_INPUT", "message": "query is required"}}
+
+    sheets = get_sheets_client()
+    return books_handler.books_find(sheets, q)
+
 
 @mcp.tool()
 async def books_get(book_id: Any = None, book_ids: Any = None) -> dict:
-    """参考書の詳細を取得します（GAS WebApp: books.get）。
+    """参考書の詳細を取得します。
 
     引数:
     - book_id: 単一ID（文字列）
@@ -175,712 +110,414 @@ async def books_get(book_id: Any = None, book_ids: Any = None) -> dict:
     - 複数: books_get({"book_ids":["gMB017","gMB018"]})
 
     返り値（例）:
-    - 単一: { ok:true, data: { book: { id, title, subject, monthly_goal, unit_load, structure:{chapters…} } } }
+    - 単一: { ok:true, data: { book: { id, title, subject, structure:{chapters…} } } }
     - 複数: { ok:true, data: { books: [ {id,…}, {id,…} ] } }
     """
-    # 単一ID（文字列）
-    single = _coerce_str(book_id, ("book_id","id"))
-    # 複数ID（配列想定）
-    def _as_list(x: Any) -> list[str]:
-        if x is None:
-            return []
-        if isinstance(x, (list, tuple)):
-            out: list[str] = []
-            for v in x:
-                if isinstance(v, str):
-                    out.append(_strip_quotes(v))
-                elif isinstance(v, dict):
-                    s = _coerce_str(v, ("book_id","id"))
-                    if s:
-                        out.append(s)
-            return out
-        # 文字列1つだけ来た場合も配列化
-        if isinstance(x, str):
-            return [_strip_quotes(x)]
-        return []
-
-    many = _as_list(book_ids)
-    # book_id 自体が配列で来るケースにも対応
+    single = _coerce_str(book_id, ("book_id", "id"))
+    many = _as_list(book_ids, "book_id")
     if not many:
         many = _as_list(book_id) if isinstance(book_id, (list, tuple)) else []
 
-    if many:
-        # GETのクエリに同名キーを複数並べる（GAS doGetで配列解釈）
-        params: list[tuple[str, Any]] = [("op", "books.get")]
-        for bid in many:
-            params.append(("book_ids", bid))
-        return await _get(params)
+    sheets = get_sheets_client()
 
+    if many:
+        return books_handler.books_get(sheets, book_ids=many)
     if single:
-        return await _get({"op": "books.get", "book_id": single})
+        return books_handler.books_get(sheets, book_id=single)
 
     return {"ok": False, "op": "books.get", "error": {"code": "BAD_INPUT", "message": "book_id or book_ids is required"}}
 
 
-# --- Execution API based tools (experimental) ---
-async def books_find_exec(query: Any, dev_mode: bool = True) -> dict:
-    """[非公開/内部] Apps Script Execution API 経由の books.find（実験用）。
-    通常は使用しません。WebApp 版の books_find を利用してください。
-    必要時のみメンテナ向けに残しています。
-    """
-    q = _coerce_str(query, ("query","q","text"))
-    if not q:
-        return {"ok": False, "op":"books.find","error":{"code":"BAD_INPUT","message":"query is required"}}
-    try:
-        result = await scripts_run(
-            function="booksFind",
-            parameters=[{"query": q}],
-            dev_mode=dev_mode,
-            script_id=_script_id(),
-        )
-        return result
-    except Exception as e:
-        return {"ok": False, "op":"books.find", "error": {"code":"EXEC_API_ERROR","message": str(e)}}
-
-
-async def books_get_exec(book_id: Any = None, book_ids: Any = None, dev_mode: bool = True) -> dict:
-    """[非公開/内部] Apps Script Execution API 経由の books.get（実験用）。
-    通常は使用しません。WebApp 版の books_get を利用してください。
-    必要時のみメンテナ向けに残しています。
-    """
-    # Reuse normalization from GET tool
-    def _as_list(x: Any) -> list[str]:
-        if x is None:
-            return []
-        if isinstance(x, (list, tuple)):
-            out: list[str] = []
-            for v in x:
-                if isinstance(v, str):
-                    out.append(_strip_quotes(v))
-                elif isinstance(v, dict):
-                    s = _coerce_str(v, ("book_id","id"))
-                    if s:
-                        out.append(s)
-            return out
-        if isinstance(x, str):
-            return [_strip_quotes(x)]
-        return []
-
-    many = _as_list(book_ids)
-    if not many and isinstance(book_id, (list, tuple)):
-        many = _as_list(book_id)
-    single = _coerce_str(book_id, ("book_id","id")) if not many else None
-
-    req: dict[str, Any] = {}
-    if many:
-        req["book_ids"] = many
-    elif single:
-        req["book_id"] = single
-    else:
-        return {"ok": False, "op":"books.get","error":{"code":"BAD_INPUT","message":"book_id or book_ids is required"}}
-
-    try:
-        result = await scripts_run(
-            function="booksGet",
-            parameters=[req],
-            dev_mode=dev_mode,
-            script_id=_script_id(),
-        )
-        return result
-    except Exception as e:
-        return {"ok": False, "op":"books.get", "error": {"code":"EXEC_API_ERROR","message": str(e)}}
-
-
-def _normalize_key_for_sheet(k: str) -> str:
-    """ユーザ入力のキー（英語/別名）をシート見出しに寄せる簡易マッピング。"""
-    t = k.strip().lower()
-    # 代表列
-    if t in {"id", "参考書id", "参考書ｉｄ"}: return "参考書ID"
-    if t in {"title", "参考書名", "書名", "名称", "名前"}: return "参考書名"
-    if t in {"subject", "教科", "科目"}: return "教科"
-    if t in {"book_type", "参考書のタイプ"}: return "参考書のタイプ"
-    if t in {"quiz_type", "確認テストのタイプ"}: return "確認テストのタイプ"
-    if t in {"quiz_id", "確認テストid", "確認テストｉｄ"}: return "確認テストID"
-    # そのまま返す（シート見出しが直接指定された場合）
-    return k
-
-def _parse_where_like(x: Any) -> dict[str, Any] | None:
-    """'subject = "数学"' のような簡易式を {"教科":"数学"} に変換。辞書はそのまま通す。"""
-    if isinstance(x, dict):
-        # キー正規化（英語→日本語見出し）
-        return { _normalize_key_for_sheet(str(k)) : v for k, v in x.items() }
-    if isinstance(x, str):
-        s = x.strip()
-        # 演算子 = / : をサポート（前後空白/引用符を吸収）
-        for sep in ["=", ":"]:
-            if sep in s:
-                left, right = s.split(sep, 1)
-                key = _normalize_key_for_sheet(left.strip())
-                val = right.strip()
-                if (val.startswith("\"") and val.endswith("\"")) or (val.startswith("'") and val.endswith("'")):
-                    val = val[1:-1]
-                if key:
-                    return { key: val }
-        # 解析不能
-        return None
-    return None
-
 @mcp.tool()
 async def books_filter(where: Any = None, contains: Any = None, limit: int | None = 50) -> dict:
-    """条件で参考書をフィルタします（GAS WebApp: books.filter）。
+    """条件で参考書をフィルタします。
 
     引数:
-    - where: 完全一致の条件（辞書 or 文字列式）。例: {"教科":"数学"} / "subject='数学'"
-    - contains: 部分一致の条件（辞書 or 文字列式）。例: {"参考書名":"青チャート"}
+    - where: 完全一致の条件（辞書）。例: {"教科":"数学"}
+    - contains: 部分一致の条件（辞書）。例: {"参考書名":"青チャート"}
     - limit: 上限件数（既定 50）
-
-    キーの自動マッピング:
-    - subject→教科, title→参考書名, id→参考書ID など、英語キーはシート見出しへ自動変換します。
 
     返り値（例）:
     { ok:true, data:{ books:[ {id,title,subject,…} ], count, limit } }
     """
-    payload: dict[str, Any] = {"op": "books.filter"}
-    w = _parse_where_like(where) if where is not None else None
-    c = _parse_where_like(contains) if contains is not None else None
-    if isinstance(w, dict) and w:
-        payload["where"] = w
-    if isinstance(c, dict) and c:
-        payload["contains"] = c
-    if isinstance(limit, int) and limit > 0:
-        payload["limit"] = limit
-    try:
-        return await _post(payload)
-    except Exception as e:
-        return {"ok": False, "op": "books.filter", "error": {"code": "HTTP_POST_ERROR", "message": str(e)}}
-
-
-# ===== Students API (MVP: master sheet only) =====
-
-def _normkey(k: str) -> str: return k.strip().lower()
-
-@mcp.tool()
-async def students_list(limit: int | None = None, include_all: bool | None = None) -> dict:
-    """生徒一覧（親行のみ、id/name/grade/linksの簡易形）。
-
-    既定は「在塾のみ」。退塾や講師等も含める場合は include_all=true を指定。
-    """
-    # 既定: 在塾のみ
-    if not include_all:
-        try:
-            data = await _post({"op": "students.filter", "where": {"Status": "在塾"}, "limit": limit or 0})
-        except Exception as e:
-            return {"ok": False, "op": "students.list", "error": {"code": "HTTP_POST_ERROR", "message": str(e)}}
-    else:
-        try:
-            data = await _get({"op": "students.list", "limit": limit or 0})
-        except Exception as e:
-            return {"ok": False, "op": "students.list", "error": {"code": "HTTP_GET_ERROR", "message": str(e)}}
-    if not isinstance(data, dict) or not data.get("ok"):
-        return {"ok": False, "op": "students.list", "error": {"code": "UPSTREAM_ERROR", "message": str(data)}}
-    items = ((data.get("data") or {}).get("students") or [])
-    students = [{
-        "id": s.get("id"),
-        "name": s.get("name"),
-        "grade": s.get("grade"),
-        "planner_sheet_id": s.get("planner_sheet_id"),
-        "meeting_doc_id": s.get("meeting_doc_id"),
-    } for s in items if isinstance(s, dict)]
-    return {"ok": True, "op": "students.list", "data": {"students": students, "count": len(students)}}
-
-@mcp.tool()
-async def students_find(query: Any, limit: int | None = 10, include_all: bool | None = None) -> dict:
-    q = _coerce_str(query, ("query","q","text"))
-    if not q: return {"ok": False, "op": "students.find", "error": {"code": "BAD_INPUT", "message": "query is required"}}
-    # 既定: 在塾のみ（contains: 名前）
-    if not include_all:
-        try:
-            return await _post({"op": "students.filter", "where": {"Status": "在塾"}, "contains": {"名前": q}, "limit": limit or 0})
-        except Exception as e:
-            return {"ok": False, "op": "students.find", "error": {"code": "HTTP_POST_ERROR", "message": str(e)}}
-    else:
-        try:
-            return await _get({"op": "students.find", "query": q, "limit": limit or 0})
-        except Exception as e:
-            return {"ok": False, "op": "students.find", "error": {"code": "HTTP_GET_ERROR", "message": str(e)}}
-
-@mcp.tool()
-async def students_get(student_id: Any = None, student_ids: Any = None) -> dict:
-    # 単一/複数対応
-    def _as_list(x: Any) -> list[str]:
-        if x is None: return []
-        if isinstance(x, (list, tuple)):
-            out = []
-            for v in x:
-                if isinstance(v, str): out.append(_strip_quotes(v))
-                elif isinstance(v, dict):
-                    s = _coerce_str(v, ("student_id","id"))
-                    if s: out.append(s)
-            return out
-        if isinstance(x, str): return [_strip_quotes(x)]
-        return []
-    many = _as_list(student_ids)
-    if not many and isinstance(student_id,(list,tuple)): many=_as_list(student_id)
-    single = _coerce_str(student_id, ("student_id","id")) if not many else None
-    params: dict[str, Any] = {"op": "students.get"}
-    if many: params["student_ids"] = many
-    elif single: params["student_id"] = single
-    else: return {"ok": False, "op": "students.get", "error": {"code": "BAD_INPUT", "message": "student_id or student_ids is required"}}
-    try:
-        return await _post(params)
-    except Exception as e:
-        return {"ok": False, "op": "students.get", "error": {"code": "HTTP_POST_ERROR", "message": str(e)}}
-
-@mcp.tool()
-async def students_filter(where: Any = None, contains: Any = None, limit: int | None = None, include_all: bool | None = None) -> dict:
-    payload: dict[str, Any] = {"op": "students.filter"}
-    if isinstance(where, dict): payload["where"] = where
-    if isinstance(contains, dict): payload["contains"] = contains
-    if isinstance(limit, int) and limit>0: payload["limit"] = limit
-    # 既定: 在塾のみ（呼び出し側で Status が指定されていなければ自動付与）
-    if not include_all:
-        w = payload.get("where") or {}
-        # 明示的に Status が指定されていない場合のみ上書き
-        if not isinstance(w, dict) or ("Status" not in w and "status" not in w):
-            payload["where"] = {**(w if isinstance(w, dict) else {}), "Status": "在塾"}
-    try:
-        return await _post(payload)
-    except Exception as e:
-        return {"ok": False, "op": "students.filter", "error": {"code": "HTTP_POST_ERROR", "message": str(e)}}
-
-@mcp.tool()
-async def students_create(record: dict[str, Any] | None = None, id_prefix: str | None = None) -> dict:
-    """生徒の新規作成。record にシート見出し→値で渡す（例: {"名前":"山田太郎","学年":"高1"}）。
-    可能であれば `名前/学年` を含める。IDは s / id_prefix で自動採番。
-    """
-    payload = {"op": "students.create", "record": record or {}}
-    if id_prefix: payload["id_prefix"] = id_prefix
-    try:
-        return await _post(payload)
-    except Exception as e:
-        return {"ok": False, "op": "students.create", "error": {"code": "HTTP_POST_ERROR", "message": str(e)}}
-
-@mcp.tool()
-async def students_update(student_id: Any, updates: dict[str, Any] | None = None, confirm_token: str | None = None) -> dict:
-    """生徒の更新（二段階）。updates は見出し→値のマップ。"""
-    sid = _coerce_str(student_id, ("student_id","id"))
-    if not sid: return {"ok": False, "op": "students.update", "error": {"code": "BAD_INPUT", "message": "student_id is required"}}
-    payload: dict[str, Any] = {"op": "students.update", "student_id": sid}
-    if confirm_token: payload["confirm_token"] = confirm_token
-    else:
-        if isinstance(updates, dict): payload["updates"] = updates
-        else: return {"ok": False, "op": "students.update", "error": {"code": "BAD_INPUT", "message": "updates is required for preview"}}
-    try:
-        return await _post(payload)
-    except Exception as e:
-        return {"ok": False, "op": "students.update", "error": {"code": "HTTP_POST_ERROR", "message": str(e)}}
-
-@mcp.tool()
-async def students_delete(student_id: Any, confirm_token: str | None = None) -> dict:
-    sid = _coerce_str(student_id, ("student_id","id"))
-    if not sid: return {"ok": False, "op": "students.delete", "error": {"code": "BAD_INPUT", "message": "student_id is required"}}
-    payload: dict[str, Any] = {"op": "students.delete", "student_id": sid}
-    if confirm_token: payload["confirm_token"] = confirm_token
-    try:
-        return await _post(payload)
-    except Exception as e:
-        return {"ok": False, "op": "students.delete", "error": {"code": "HTTP_POST_ERROR", "message": str(e)}}
-
-
-@mcp.tool()
-async def books_create(title: str, subject: str, unit_load: Any = None, monthly_goal: str | None = None, chapters: Any = None, id_prefix: str | None = None) -> dict:
-    """参考書を新規作成（GAS WebApp: books.create）。LLM向け・重要ルール:
-
-    1) 章の配列は「最終形」を完全指定すること（追記ではない）。
-    2) numbering（番号の数え方）は必ず埋めること（空欄にしない）。代表例:
-       - 問題集/演習系 → "問"、語彙/単語集 → "No.", 英作文/講義系 → "講" or "Lesson" など。
-       - 迷ったら問題番号なら "問"、英単語なら "No." を推奨。
-    3) 章またぎの番号の扱い（range.start）:
-       - 原則は章ごとにリセット（各章の start=1）。
-       - 書籍が章をまたいで連番の場合のみ、次章の start=前章 end+1 に設定（例: 1章1-20 → 2章21-40）。
-    4) 最初の章はシートの「親行」に入り、第2章以降は下行に追加される（GAS側仕様）。
-    5) 数値は数値型で渡す（unit_load: 2 など）。id は自動採番（id_prefix で接頭辞指定可）。
-
-    例（章ごとにリセット）:
-    {"title":"語彙テスト","subject":"英語","unit_load":1,
-     "chapters":[
-       {"title":"第1章", "range":{"start":1, "end":200}, "numbering":"No."},
-       {"title":"第2章", "range":{"start":1, "end":180}, "numbering":"No."}
-     ]}
-
-    例（章をまたいで連番）:
-    {"title":"標準問題精講","subject":"数学","unit_load":2,
-     "chapters":[
-       {"title":"第1章", "range":{"start":1,  "end":20}, "numbering":"問"},
-       {"title":"第2章", "range":{"start":21, "end":40}, "numbering":"問"}
-     ]}
-    """
-    payload: dict[str, Any] = {"op": "books.create", "title": title, "subject": subject}
-    if unit_load is not None:
-        try:
-            payload["unit_load"] = float(unit_load)
-        except Exception:
-            payload["unit_load"] = unit_load
-    if monthly_goal is not None:
-        payload["monthly_goal"] = monthly_goal
-    if isinstance(chapters, list):
-        payload["chapters"] = chapters
-    if id_prefix:
-        payload["id_prefix"] = id_prefix
-    try:
-        return await _post(payload)
-    except Exception as e:
-        return {"ok": False, "op": "books.create", "error": {"code": "HTTP_POST_ERROR", "message": str(e)}}
-
-
-@mcp.tool()
-async def books_update(book_id: Any, updates: Any | None = None, confirm_token: str | None = None) -> dict:
-    """参考書の更新（GAS WebApp: books.update）。安全な2段階:
-
-    1) プレビュー: {book_id, updates} → 差分と confirm_token
-    2) 確定: {book_id, confirm_token} → { updated }
-
-    入力の注意（LLM向け）:
-    - updates.chapters は「完全置換」（追記ではない）。最終形の配列を渡す。
-    - numbering（番号の数え方）は必ず埋める（空欄禁止）。例: 問/No./講/Lesson など。
-    - 章またぎ番号の扱い: 原則リセット（各章 start=1）。連番が正しい書籍のみ carry-over（次章 start=前章 end+1）。
-    - 第1章は親行、2章目以降は下行へ書き込み（create と同等）。
-    - 変更しない項目は updates に含めない（空文字上書きを避ける）。
-    - 数値は数値型で渡す（unit_load 等）。
-    """
-    bid = _coerce_str(book_id, ("book_id","id"))
-    if not bid:
-        return {"ok": False, "op": "books.update", "error": {"code": "BAD_INPUT", "message": "book_id is required"}}
-    payload: dict[str, Any] = {"op": "books.update", "book_id": bid}
-    if confirm_token:
-        payload["confirm_token"] = confirm_token
-    else:
-        if isinstance(updates, dict):
-            payload["updates"] = updates
-        else:
-            return {"ok": False, "op": "books.update", "error": {"code": "BAD_INPUT", "message": "updates is required for preview"}}
-    try:
-        return await _post(payload)
-    except Exception as e:
-        return {"ok": False, "op": "books.update", "error": {"code": "HTTP_POST_ERROR", "message": str(e)}}
-
-
-@mcp.tool()
-async def books_delete(book_id: Any, confirm_token: str | None = None) -> dict:
-    """参考書の削除（2段階）を行います（GAS WebApp: books.delete）。
-
-    ワークフロー:
-    1) プレビュー: book_id のブロック行数・範囲と confirm_token を返す
-    2) 確定: book_id と confirm_token を渡す → { deleted_rows }
-    """
-    bid = _coerce_str(book_id, ("book_id","id"))
-    if not bid:
-        return {"ok": False, "op": "books.delete", "error": {"code": "BAD_INPUT", "message": "book_id is required"}}
-    payload: dict[str, Any] = {"op": "books.delete", "book_id": bid}
-    if confirm_token:
-        payload["confirm_token"] = confirm_token
-    try:
-        return await _post(payload)
-    except Exception as e:
-        return {"ok": False, "op": "books.delete", "error": {"code": "HTTP_POST_ERROR", "message": str(e)}}
+    sheets = get_sheets_client()
+    return books_handler.books_filter(
+        sheets,
+        where=where if isinstance(where, dict) else None,
+        contains=contains if isinstance(contains, dict) else None,
+        limit=limit,
+    )
 
 
 @mcp.tool()
 async def books_list(limit: int | None = None) -> dict:
-    """参考書を簡易一覧（id/subject/title のみ）。
-
-    実装: books.filter（条件なし）で全件を取得し、必要最小項目に整形。
-    - limit 指定時はその件数に切り詰め。
-    - 依存: WebAppの books.filter（POST）。table.read には依存しない。
-    """
-    payload: dict[str, Any] = {"op": "books.filter"}
-    if isinstance(limit, int) and limit > 0:
-        payload["limit"] = limit
-    try:
-        data = await _post(payload)
-    except Exception as e:
-        return {"ok": False, "op": "books.list", "error": {"code": "HTTP_POST_ERROR", "message": str(e)}}
-
-    if not isinstance(data, dict) or not data.get("ok"):
-        return {"ok": False, "op": "books.list", "error": {"code": "UPSTREAM_ERROR", "message": str(data)}}
-
-    items = ((data.get("data") or {}).get("books") or [])
-    books = [
-        {"id": b.get("id"), "subject": b.get("subject"), "title": b.get("title")}
-        for b in items if isinstance(b, dict)
-    ]
-    return {"ok": True, "op": "books.list", "data": {"books": books, "count": len(books)}}
+    """参考書を簡易一覧（id/subject/title のみ）。"""
+    sheets = get_sheets_client()
+    return books_handler.books_list(sheets, limit=limit)
 
 
 @mcp.tool()
-async def tools_help() -> dict:
-    """このMCPで公開中のツール一覧と使い方を返します（簡易ヘルプ）。
+async def books_create(
+    title: str,
+    subject: str,
+    unit_load: Any = None,
+    monthly_goal: str | None = None,
+    chapters: Any = None,
+    id_prefix: str | None = None,
+) -> dict:
+    """参考書を新規作成（自動ID付与）。
 
-    目的:
-    - LLM/ユーザーが最小構成の正しいツールを選びやすくするためのガイド。
+    引数:
+    - title: 参考書名（必須）
+    - subject: 教科（必須）
+    - unit_load: 単位処理量（任意）
+    - monthly_goal: 月間目標（任意）
+    - chapters: 章の配列（任意）
+    - id_prefix: IDの接頭辞（任意）
 
-    備考:
-    - 実行API版（*_exec）は公開していません。通常はWebApp経由のツールを使用してください。
+    章の形式:
+    [{"title":"第1章", "range":{"start":1, "end":20}, "numbering":"問"}, ...]
     """
-    tools = [
-        {
-            "name": "books_find",
-            "desc": "参考書の曖昧検索",
-            "args": {"query": "string"},
-            "example": {"query": "青チャート"},
-            "returns": "candidates/top/confidence を含む検索結果",
-        },
-        {
-            "name": "books_get",
-            "desc": "参考書の詳細取得（単一/複数）",
-            "args": {"book_id": "string | optional", "book_ids": "string[] | optional"},
-            "example": {"book_ids": ["gMB017", "gMB018"]},
-            "returns": "{ book } または { books }",
-        },
-        {
-            "name": "books_filter",
-            "desc": "条件で参考書を絞り込み（書籍単位）",
-            "args": {"where": "object|string", "contains": "object|string", "limit": "number"},
-            "example": {"where": {"教科": "数学"}, "limit": 10},
-            "notes": "文字列式 subject='数学' や英語キー（subject/title/id）も可",
-        },
-        {
-            "name": "books_list",
-            "desc": "全参考書の親行を一覧（id/subject/title のみ）",
-            "args": {"limit": "number | optional"},
-            "example": {"limit": 50},
-            "returns": "{ books:[{id,subject,title}], count }",
-        },
-        {
-            "name": "books_create",
-            "desc": "参考書の新規作成（自動ID付与）",
-            "args": {"title":"string","subject":"string","unit_load":"number?","monthly_goal":"string?","chapters":"Chapter[]?","id_prefix":"string?"},
-            "example": {"title":"テスト本","subject":"数学","unit_load":2,"chapters":[{"title":"第1章","range":{"start":1,"end":20},"numbering":"問"}]},
-            "notes": "chaptersは最終形（完全指定）。numberingは必ず埋める（問/No./講など）。原則は章ごとにstart=1、連番書籍のみcarry。第1章は親行、2章以降は下行。数値は数値型で。"
-        },
-        {
-            "name": "books_update",
-            "desc": "二段階更新（preview→confirm）",
-            "args": {"book_id":"string","updates":"object?","confirm_token":"string?"},
-            "example_preview": {"book_id":"gMB017","updates":{"title":"（改）"}},
-            "example_confirm": {"book_id":"gMB017","confirm_token":"…"},
-            "notes": "updates.chaptersは完全置換。numberingは必ず埋める。章またぎは原則リセット（start=1）、連番書籍のみcarry。章1は親行、章2以降は下行。未変更項目は含めない。"
-        },
-        {
-            "name": "books_delete",
-            "desc": "二段階削除（preview→confirm）",
-            "args": {"book_id":"string","confirm_token":"string?"},
-            "example_preview": {"book_id":"gMB017"},
-            "example_confirm": {"book_id":"gMB017","confirm_token":"…"},
-        },
-        {
-            "name": "planner_ids_list",
-            "desc": "A4:D30のID+教科+タイトル+進め方メモを取得（単一月シート）",
-            "args": {"student_id": "string?", "spreadsheet_id": "string?"},
-            "example": {"student_id": "S123"},
-        },
-        {
-            "name": "planner_dates_get",
-            "desc": "週開始日 D1/L1/T1/AB1/AJ1 を取得",
-            "args": {"student_id": "string?", "spreadsheet_id": "string?"},
-        },
-        {
-            "name": "planner_dates_propose",
-            "desc": "D1 の変更プレビュー（confirm で確定）",
-            "args": {"start_date": "YYYY-MM-DD", "student_id": "string?", "spreadsheet_id": "string?"},
-        },
-        {
-            "name": "planner_dates_confirm",
-            "desc": "D1 変更の確定",
-            "args": {"confirm_token": "string"},
-        },
-        {
-            "name": "planner_metrics_get",
-            "desc": "週ごとの E/F/G（週間時間/単位処理量/目安処理量）を取得",
-            "args": {"student_id": "string?", "spreadsheet_id": "string?"},
-        },
-        {
-            "name": "planner_plan_get",
-            "desc": "計画セル（H/P/X/AF/AN, 行4〜30）を取得（改行保持）",
-            "args": {"student_id": "string?", "spreadsheet_id": "string?"},
-        },
-        {
-            "name": "planner_plan_create",
-            "desc": "計画セルの一括作成（高速・単発）。MUST: 実行前に planner_guidance を読むこと。",
-            "args": {"items": "{week_index,row|book_id,plan_text,overwrite?}[]", "student_id": "string?", "spreadsheet_id": "string?", "overwrite": "bool?"},
-            "returns": "{ updated, results[], warnings[], guidance_digest }",
-            "notes": "週混在OK。GAS側で列ごとに連続ブロックへバッチ書込み。前提/上限/overwrite規則は従来通り。"
-        },
-        {
-            "name": "planner_plan_create",
-            "desc": "計画セルの一括作成（高速・単発）。MUST: 実行前に planner_guidance を読むこと。",
-            "args": {"items": "{week_index,row|book_id,plan_text,overwrite?}[]", "student_id": "string?", "spreadsheet_id": "string?", "overwrite": "bool?"},
-            "returns": "{ updated, results[], warnings[], guidance_digest }",
-            "notes": "週混在OK。GAS側で列ごとに連続ブロックへバッチ書込み。前提/上限/overwrite規則は従来通り。"
-        },
-        {
-            "name": "planner_guidance",
-            "desc": "LLM向け：週間管理の計画作成ガイド（書式/上限/前提/手順）",
-            "args": {},
-        },
-        {
-            "name": "planner_plan_targets",
-            "desc": "書込み候補の自動抽出（A非空・週間時間非空・計画未入力）。TOCに基づく簡易サジェスト付き。",
-            "args": {"student_id": "string?", "spreadsheet_id": "string?"},
-            "returns": "{ week_count, targets:[{week_index,row,book_id,weekly_minutes,guideline_amount,prev_range_hint,numbering_symbol,suggested_plan_text,suggestion_confidence,end_of_book}] }",
-            "notes": "suggested_plan_text は prev_range_hint と guideline_amount/TOC をもとに推定。境界不確実な場合は confidence=low とする。"
-        },
-    ]
-    return {"ok": True, "op": "tools.help", "data": {"tools": tools}}
+    sheets = get_sheets_client()
+    return books_handler.books_create(
+        sheets,
+        title=title,
+        subject=subject,
+        unit_load=int(unit_load) if unit_load is not None else None,
+        monthly_goal=monthly_goal or "",
+        chapters=chapters if isinstance(chapters, list) else None,
+        id_prefix=id_prefix,
+    )
 
 
-# ===== Planner (weekly) tools =====
+@mcp.tool()
+async def books_update(book_id: Any, updates: Any = None, confirm_token: str | None = None) -> dict:
+    """参考書の更新（二段階: preview → confirm）。
+
+    1) プレビュー: {book_id, updates} → 差分と confirm_token
+    2) 確定: {book_id, confirm_token} → { updated }
+    """
+    bid = _coerce_str(book_id, ("book_id", "id"))
+    if not bid:
+        return {"ok": False, "op": "books.update", "error": {"code": "BAD_INPUT", "message": "book_id is required"}}
+
+    sheets = get_sheets_client()
+
+    if confirm_token:
+        return books_handler.books_update(sheets, book_id=bid, confirm_token=confirm_token)
+    elif isinstance(updates, dict):
+        return books_handler.books_update(sheets, book_id=bid, updates=updates)
+    else:
+        return {"ok": False, "op": "books.update", "error": {"code": "BAD_INPUT", "message": "updates is required for preview"}}
+
+
+@mcp.tool()
+async def books_delete(book_id: Any, confirm_token: str | None = None) -> dict:
+    """参考書の削除（二段階: preview → confirm）。"""
+    bid = _coerce_str(book_id, ("book_id", "id"))
+    if not bid:
+        return {"ok": False, "op": "books.delete", "error": {"code": "BAD_INPUT", "message": "book_id is required"}}
+
+    sheets = get_sheets_client()
+    return books_handler.books_delete(sheets, book_id=bid, confirm_token=confirm_token)
+
+
+# ===== Students Tools =====
+
+@mcp.tool()
+async def students_list(limit: int | None = None, include_all: bool | None = None) -> dict:
+    """生徒一覧を取得。既定は「在塾のみ」。include_all=true で全員。"""
+    sheets = get_sheets_client()
+
+    if include_all:
+        result = students_handler.students_list(sheets, limit=limit)
+    else:
+        # Filter by status=在塾
+        result = students_handler.students_filter(sheets, where={"Status": "在塾"}, limit=limit)
+
+    if not result.get("ok"):
+        return result
+
+    students = result.get("data", {}).get("students", [])
+    return {
+        "ok": True,
+        "op": "students.list",
+        "data": {
+            "students": [
+                {
+                    "id": s.get("id"),
+                    "name": s.get("name"),
+                    "grade": s.get("grade"),
+                    "planner_sheet_id": s.get("planner_sheet_id"),
+                    "status": s.get("status"),
+                }
+                for s in students
+            ],
+            "count": len(students),
+        },
+    }
+
+
+@mcp.tool()
+async def students_find(query: Any, limit: int | None = 10, include_all: bool | None = None) -> dict:
+    """生徒を名前で検索。既定は「在塾のみ」。"""
+    q = _coerce_str(query, ("query", "q", "text"))
+    if not q:
+        return {"ok": False, "op": "students.find", "error": {"code": "BAD_INPUT", "message": "query is required"}}
+
+    sheets = get_sheets_client()
+
+    if include_all:
+        return students_handler.students_find(sheets, query=q, limit=limit)
+    else:
+        # Filter by status=在塾 and name contains query
+        return students_handler.students_filter(
+            sheets,
+            where={"Status": "在塾"},
+            contains={"名前": q},
+            limit=limit,
+        )
+
+
+@mcp.tool()
+async def students_get(student_id: Any = None, student_ids: Any = None) -> dict:
+    """生徒の詳細を取得（単一/複数対応）。"""
+    single = _coerce_str(student_id, ("student_id", "id"))
+    many = _as_list(student_ids, "student_id")
+    if not many and isinstance(student_id, (list, tuple)):
+        many = _as_list(student_id)
+
+    sheets = get_sheets_client()
+
+    if many:
+        return students_handler.students_get(sheets, student_ids=many)
+    elif single:
+        return students_handler.students_get(sheets, student_id=single)
+    else:
+        return {"ok": False, "op": "students.get", "error": {"code": "BAD_INPUT", "message": "student_id or student_ids is required"}}
+
+
+@mcp.tool()
+async def students_filter(
+    where: Any = None,
+    contains: Any = None,
+    limit: int | None = None,
+    include_all: bool | None = None,
+) -> dict:
+    """条件で生徒をフィルタ。既定は「在塾のみ」。"""
+    sheets = get_sheets_client()
+
+    w = where if isinstance(where, dict) else {}
+    if not include_all and "Status" not in w and "status" not in w:
+        w = {**w, "Status": "在塾"}
+
+    return students_handler.students_filter(
+        sheets,
+        where=w if w else None,
+        contains=contains if isinstance(contains, dict) else None,
+        limit=limit,
+    )
+
+
+@mcp.tool()
+async def students_create(record: dict[str, Any] | None = None, id_prefix: str | None = None) -> dict:
+    """生徒の新規作成。record にシート見出し→値で渡す。"""
+    sheets = get_sheets_client()
+    return students_handler.students_create(sheets, record=record, id_prefix=id_prefix)
+
+
+@mcp.tool()
+async def students_update(student_id: Any, updates: dict[str, Any] | None = None, confirm_token: str | None = None) -> dict:
+    """生徒の更新（二段階）。"""
+    sid = _coerce_str(student_id, ("student_id", "id"))
+    if not sid:
+        return {"ok": False, "op": "students.update", "error": {"code": "BAD_INPUT", "message": "student_id is required"}}
+
+    sheets = get_sheets_client()
+
+    if confirm_token:
+        return students_handler.students_update(sheets, student_id=sid, confirm_token=confirm_token)
+    elif isinstance(updates, dict):
+        return students_handler.students_update(sheets, student_id=sid, updates=updates)
+    else:
+        return {"ok": False, "op": "students.update", "error": {"code": "BAD_INPUT", "message": "updates is required for preview"}}
+
+
+@mcp.tool()
+async def students_delete(student_id: Any, confirm_token: str | None = None) -> dict:
+    """生徒の削除（二段階）。"""
+    sid = _coerce_str(student_id, ("student_id", "id"))
+    if not sid:
+        return {"ok": False, "op": "students.delete", "error": {"code": "BAD_INPUT", "message": "student_id is required"}}
+
+    sheets = get_sheets_client()
+    return students_handler.students_delete(sheets, student_id=sid, confirm_token=confirm_token)
+
+
+# ===== Planner (Weekly) Tools =====
 
 @mcp.tool()
 async def planner_ids_list(student_id: Any = None, spreadsheet_id: Any = None) -> dict:
-    """A4:D30 を読み取り、raw_code/月コード/book_id/教科/タイトル/進め方メモを返します。
+    """A4:D30 を読み取り、raw_code/月コード/book_id/教科/タイトル/進め方メモを返します。"""
+    sid = _coerce_str(student_id, ("student_id", "id"))
+    spid = _coerce_str(spreadsheet_id, ("spreadsheet_id", "sheet_id", "id"))
 
-    引数: student_id か spreadsheet_id（どちらか必須）
-    """
-    sid = _coerce_str(student_id, ("student_id","id"))
-    spid = _coerce_str(spreadsheet_id, ("spreadsheet_id","sheet_id","id"))
     if not (sid or spid):
         return {"ok": False, "op": "planner.ids_list", "error": {"code": "BAD_INPUT", "message": "student_id or spreadsheet_id is required"}}
-    payload = {"op": "planner.ids_list"}
-    if sid: payload["student_id"] = sid
-    if spid: payload["spreadsheet_id"] = spid
-    return await _post(payload)
+
+    sheets = get_sheets_client()
+    return planner_handler.planner_ids_list(sheets, student_id=sid, spreadsheet_id=spid)
+
 
 @mcp.tool()
 async def planner_dates_get(student_id: Any = None, spreadsheet_id: Any = None) -> dict:
-    payload: dict[str, Any] = {"op": "planner.dates.get"}
-    sid = _coerce_str(student_id, ("student_id","id"))
-    spid = _coerce_str(spreadsheet_id, ("spreadsheet_id","sheet_id","id"))
-    if sid: payload["student_id"] = sid
-    if spid: payload["spreadsheet_id"] = spid
-    return await _post(payload)
+    """週開始日 D1/L1/T1/AB1/AJ1 を取得。"""
+    sid = _coerce_str(student_id, ("student_id", "id"))
+    spid = _coerce_str(spreadsheet_id, ("spreadsheet_id", "sheet_id", "id"))
+
+    sheets = get_sheets_client()
+    return planner_handler.planner_dates_get(sheets, student_id=sid, spreadsheet_id=spid)
+
 
 @mcp.tool()
-async def planner_dates_propose(start_date: str, student_id: Any = None, spreadsheet_id: Any = None) -> dict:
-    """D1 を変更するプレビューを作成（差分だけを返し、確定は confirm で）。"""
-    get = await planner_dates_get(student_id=student_id, spreadsheet_id=spreadsheet_id)
-    if not isinstance(get, dict) or not get.get("ok"):
-        return {"ok": False, "op": "planner.dates.propose", "error": {"code": "UPSTREAM", "message": str(get)}}
-    before = (get.get("data") or {}).get("week_starts")
-    token = _preview_put({
-        "op": "planner.dates.set",
-        "student_id": _coerce_str(student_id, ("student_id","id")),
-        "spreadsheet_id": _coerce_str(spreadsheet_id, ("spreadsheet_id","sheet_id","id")),
-        "start_date": start_date,
-    })
-    return {"ok": True, "op": "planner.dates.propose", "data": {"confirm_token": token, "effects": [{"cell": "D1", "before": before[0] if isinstance(before, list) else None, "after": start_date}]}}
+async def planner_dates_set(start_date: str, student_id: Any = None, spreadsheet_id: Any = None) -> dict:
+    """D1 の週開始日を設定。"""
+    if not start_date:
+        return {"ok": False, "op": "planner.dates.set", "error": {"code": "BAD_INPUT", "message": "start_date is required"}}
 
-@mcp.tool()
-async def planner_dates_confirm(confirm_token: str) -> dict:
-    payload = _preview_pop(confirm_token)
-    if not payload:
-        return {"ok": False, "op": "planner.dates.confirm", "error": {"code": "CONFIRM_EXPIRED", "message": "invalid token"}}
-    payload["op"] = "planner.dates.set"
-    return await _post(payload)
+    sid = _coerce_str(student_id, ("student_id", "id"))
+    spid = _coerce_str(spreadsheet_id, ("spreadsheet_id", "sheet_id", "id"))
+
+    sheets = get_sheets_client()
+    return planner_handler.planner_dates_set(sheets, start_date=start_date, student_id=sid, spreadsheet_id=spid)
+
 
 @mcp.tool()
 async def planner_metrics_get(student_id: Any = None, spreadsheet_id: Any = None) -> dict:
-    payload: dict[str, Any] = {"op": "planner.metrics.get"}
-    sid = _coerce_str(student_id, ("student_id","id"))
-    spid = _coerce_str(spreadsheet_id, ("spreadsheet_id","sheet_id","id"))
-    if sid: payload["student_id"] = sid
-    if spid: payload["spreadsheet_id"] = spid
-    return await _post(payload)
+    """週ごとの週間時間/単位処理量/目安処理量を取得。"""
+    sid = _coerce_str(student_id, ("student_id", "id"))
+    spid = _coerce_str(spreadsheet_id, ("spreadsheet_id", "sheet_id", "id"))
+
+    sheets = get_sheets_client()
+    return planner_handler.planner_metrics_get(sheets, student_id=sid, spreadsheet_id=spid)
+
 
 @mcp.tool()
 async def planner_plan_get(student_id: Any = None, spreadsheet_id: Any = None) -> dict:
-    # 1) plans
-    payload: dict[str, Any] = {"op": "planner.plan.get"}
-    sid = _coerce_str(student_id, ("student_id","id"))
-    spid = _coerce_str(spreadsheet_id, ("spreadsheet_id","sheet_id","id"))
-    if sid: payload["student_id"] = sid
-    if spid: payload["spreadsheet_id"] = spid
-    plans = await _post(payload)
+    """計画セル（H/P/X/AF/AN, 行4〜30）を取得。メトリクスも統合。"""
+    sid = _coerce_str(student_id, ("student_id", "id"))
+    spid = _coerce_str(spreadsheet_id, ("spreadsheet_id", "sheet_id", "id"))
+
+    sheets = get_sheets_client()
+
+    # Get plans
+    plans = planner_handler.planner_plan_get(sheets, student_id=sid, spreadsheet_id=spid)
     if not plans.get("ok"):
         return plans
-    # 2) metrics（同じ入力で取得）
-    mets = await planner_metrics_get(student_id=sid, spreadsheet_id=spid)
-    if not mets.get("ok"):
-        # metricsが落ちてもプランは返す（後方互換）
-        return plans
-    # 3) 結合: week×row で weekly_minutes/unit_load/guideline_amount を付与
-    def index_by_row(items: list[dict]):
-        out = {}
-        for it in items or []:
-            try:
-                out[int(it.get("row"))] = it
-            except Exception:
-                pass
-        return out
-    mets_by_wk = {int(w.get("week_index")): index_by_row((w.get("items") or [])) for w in ((mets.get("data") or {}).get("weeks") or [])}
-    weeks = ((plans.get("data") or {}).get("weeks") or [])
-    for w in weeks:
-        wi = int(w.get("week_index") or w.get("index") or 0)
-        rowmap = mets_by_wk.get(wi, {})
-        for it in (w.get("items") or []):
-            try:
-                r = int(it.get("row"))
-            except Exception:
-                continue
-            m = rowmap.get(r) or {}
-            if m:
-                it["weekly_minutes"] = m.get("weekly_minutes")
-                it["unit_load"] = m.get("unit_load")
-                it["guideline_amount"] = m.get("guideline_amount")
-    return {"ok": True, "op": "planner.plan.get", "data": {"weeks": weeks}}
 
-# propose/confirm are fully removed (create-only workflow)
+    # Get metrics and merge
+    metrics = planner_handler.planner_metrics_get(sheets, student_id=sid, spreadsheet_id=spid)
+    if not metrics.get("ok"):
+        return plans  # Return plans without metrics
+
+    # Index metrics by week and row
+    metrics_by_week = {}
+    for wk in metrics.get("data", {}).get("weeks", []):
+        wi = wk.get("week_index")
+        metrics_by_week[wi] = {it.get("row"): it for it in wk.get("items", [])}
+
+    # Merge metrics into plans
+    for wk in plans.get("data", {}).get("weeks", []):
+        wi = wk.get("week_index")
+        row_map = metrics_by_week.get(wi, {})
+        for item in wk.get("items", []):
+            r = item.get("row")
+            m = row_map.get(r, {})
+            if m:
+                item["weekly_minutes"] = m.get("weekly_minutes")
+                item["unit_load"] = m.get("unit_load")
+                item["guideline_amount"] = m.get("guideline_amount")
+
+    return plans
 
 
 @mcp.tool()
-async def planner_plan_create(items: Any, student_id: Any = None, spreadsheet_id: Any = None, overwrite: bool | None = None) -> dict:
+async def planner_plan_set(
+    week_index: int | None = None,
+    plan_text: str | None = None,
+    row: int | None = None,
+    book_id: str | None = None,
+    overwrite: bool = False,
+    items: list[dict] | None = None,
+    student_id: Any = None,
+    spreadsheet_id: Any = None,
+) -> dict:
+    """計画セルへの書込み。単体モードまたは一括(items)モード。"""
+    sid = _coerce_str(student_id, ("student_id", "id"))
+    spid = _coerce_str(spreadsheet_id, ("spreadsheet_id", "sheet_id", "id"))
+
+    sheets = get_sheets_client()
+    return planner_handler.planner_plan_set(
+        sheets,
+        week_index=week_index,
+        plan_text=plan_text,
+        row=row,
+        book_id=book_id,
+        overwrite=overwrite,
+        items=items,
+        student_id=sid,
+        spreadsheet_id=spid,
+    )
+
+
+@mcp.tool()
+async def planner_plan_create(
+    items: Any,
+    student_id: Any = None,
+    spreadsheet_id: Any = None,
+    overwrite: bool | None = None,
+) -> dict:
     """計画セルを一括作成（高速・単発）。
 
-    MUST: 実行前に planner_guidance を読むこと。応答にも guidance_digest を同梱します。
+    MUST: 実行前に planner_guidance を読むこと。
 
     引数:
     - items: [{week_index, row|book_id, plan_text, overwrite?}, …]
-    - student_id | spreadsheet_id: いずれか（シート解決）
-    - overwrite: 省略時は false（空欄のみ）。items側で個別上書き可。
-
-    動作:
-    - 週混在OK。GAS側で列ごとに連続ブロックへまとめて setValues（高速）。
-    - バリデーション: 週数(week_count)・52文字超は warnings として返却（GAS側でも最終検証）。
-    - 返却: { updated, results[], warnings[], guidance_digest }
+    - student_id | spreadsheet_id: いずれか
+    - overwrite: 省略時は false（空欄のみ）
     """
     if not isinstance(items, list) or not items:
         return {"ok": False, "op": "planner.plan.create", "error": {"code": "BAD_INPUT", "message": "items[] is required"}}
-    sid = _coerce_str(student_id, ("student_id","id"))
-    spid = _coerce_str(spreadsheet_id, ("spreadsheet_id","sheet_id","id"))
-    payload: dict[str, Any] = {"op": "planner.plan.set", "items": []}
-    if sid: payload["student_id"] = sid
-    if spid: payload["spreadsheet_id"] = spid
 
-    # 週数（4/5）を取得して早期警告
+    sid = _coerce_str(student_id, ("student_id", "id"))
+    spid = _coerce_str(spreadsheet_id, ("spreadsheet_id", "sheet_id", "id"))
+
+    sheets = get_sheets_client()
+
+    # Get week count for validation
+    dates = planner_handler.planner_dates_get(sheets, student_id=sid, spreadsheet_id=spid)
     week_count = 5
-    try:
-        d = await planner_dates_get(student_id=sid, spreadsheet_id=spid)
-        if isinstance(d, dict) and d.get("ok"):
-            week_count = _week_count_from_dates(d)
-    except Exception:
-        pass
+    if dates.get("ok"):
+        ws = dates.get("data", {}).get("week_starts", [])
+        week_count = sum(1 for x in ws if str(x or "").strip()) or 5
 
-    warnings: list[str] = []
+    # Validate and prepare items
+    warnings = []
+    prepared_items = []
     for it in items:
         try:
             wi = int(it.get("week_index"))
             txt = str(it.get("plan_text") or "")
-        except Exception:
+        except (TypeError, ValueError):
             warnings.append(f"bad item: {it}")
             continue
+
         if wi < 1 or wi > week_count:
             warnings.append(f"week_index out of range: {wi} (1..{week_count})")
         if len(txt) > 52:
-            warnings.append(f"plan_text too long ({len(txt)} > 52). It will fail on write.")
-        out_it: dict[str, Any] = {
-            "week_index": wi,
-            "plan_text": txt,
-        }
+            warnings.append(f"plan_text too long ({len(txt)} > 52)")
+
+        out_it = {"week_index": wi, "plan_text": txt}
         if overwrite is not None and it.get("overwrite") is None:
             out_it["overwrite"] = bool(overwrite)
         if it.get("overwrite") is not None:
@@ -889,230 +526,62 @@ async def planner_plan_create(items: Any, student_id: Any = None, spreadsheet_id
             out_it["row"] = it.get("row")
         if it.get("book_id") is not None:
             out_it["book_id"] = it.get("book_id")
-        payload["items"].append(out_it)
+        prepared_items.append(out_it)
 
-    try:
-        res = await _post(payload)
-    except Exception as e:
-        return {"ok": False, "op": "planner.plan.create", "error": {"code": "HTTP_POST_ERROR", "message": str(e)}}
+    # Execute
+    result = planner_handler.planner_plan_set(
+        sheets,
+        items=prepared_items,
+        student_id=sid,
+        spreadsheet_id=spid,
+    )
 
-    gd = await planner_guidance()
-    out = {"ok": bool(res.get("ok")), "op": "planner.plan.create", "data": (res.get("data") or {})}
-    out["data"]["warnings"] = warnings
-    out["data"]["guidance_digest"] = (gd.get("data") or {})
-    if not res.get("ok"):
-        out["error"] = res.get("error")
+    # Add guidance digest
+    guidance = await planner_guidance()
+
+    out = {
+        "ok": result.get("ok"),
+        "op": "planner.plan.create",
+        "data": {
+            **(result.get("data") or {}),
+            "warnings": warnings,
+            "guidance_digest": guidance.get("data", {}),
+        },
+    }
+    if not result.get("ok"):
+        out["error"] = result.get("error")
+
     return out
 
-@mcp.tool()
-async def planner_monthly_filter(year: int | str, month: int | str, student_id: Any = None, spreadsheet_id: Any = None) -> dict:
-    """月間管理から指定年月(B=年下2桁, C=月)の実績を取得（読み取り専用）。
 
-    引数:
-    - year: 25 または 2025（4桁可: 2000を引いて2桁に正規化）
-    - month: 1..12
-    - student_id または spreadsheet_id のいずれか
-    """
-    payload: dict[str, Any] = {"op": "planner.monthly.filter", "year": year, "month": month}
-    sid = _coerce_str(student_id, ("student_id","id"))
-    spid = _coerce_str(spreadsheet_id, ("spreadsheet_id","sheet_id","id"))
-    if sid: payload["student_id"] = sid
-    if spid: payload["spreadsheet_id"] = spid
-    try:
-        return await _post(payload)
-    except Exception as e:
-        return {"ok": False, "op": "planner.monthly.filter", "error": {"code": "HTTP_POST_ERROR", "message": str(e)}}
-
-
-# ===== Weekly Planner: targets（自動抽出） =====
-
-def _week_count_from_dates(dget: dict) -> int:
-    ws = ((dget.get("data") or {}).get("week_starts")) if isinstance(dget, dict) else None
-    if isinstance(ws, list):
-        cnt = sum(1 for x in ws if str(x or "").strip() != "")
-        return cnt if cnt in (4,5) else len(ws)
-    return 5
-
-def _index_by_row(items: list[dict], key: str = "row") -> dict[int, dict]:
-    out: dict[int, dict] = {}
-    for it in items or []:
-        try:
-            r = int(it.get(key))
-            out[r] = it
-        except Exception:
-            continue
-    return out
+# ===== Planner (Monthly) Tools =====
 
 @mcp.tool()
-async def planner_plan_targets(student_id: Any = None, spreadsheet_id: Any = None) -> dict:
-    """書込み候補セル（A非空・週間時間非空・計画未入力）を週×行で自動抽出します。
+async def planner_monthly_filter(
+    year: int | str,
+    month: int | str,
+    student_id: Any = None,
+    spreadsheet_id: Any = None,
+) -> dict:
+    """月間管理から指定年月の実績を取得。"""
+    sid = _coerce_str(student_id, ("student_id", "id"))
+    spid = _coerce_str(spreadsheet_id, ("spreadsheet_id", "sheet_id", "id"))
 
-    返却: { week_count, targets:[{week_index,row,book_id,weekly_minutes,guideline_amount,prev_range_hint?}] }
-    """
-    sid = _coerce_str(student_id, ("student_id","id"))
-    spid = _coerce_str(spreadsheet_id, ("spreadsheet_id","sheet_id","id"))
-    # 1) 基本情報
-    ids = await planner_ids_list(student_id=sid, spreadsheet_id=spid)
-    if not ids.get("ok"):
-        return {"ok": False, "op": "planner.plan.targets", "error": {"code": "UPSTREAM_IDS", "message": str(ids)}}
-    dates = await planner_dates_get(student_id=sid, spreadsheet_id=spid)
-    if not dates.get("ok"):
-        return {"ok": False, "op": "planner.plan.targets", "error": {"code": "UPSTREAM_DATES", "message": str(dates)}}
-    week_count = _week_count_from_dates(dates)
-    mets = await planner_metrics_get(student_id=sid, spreadsheet_id=spid)
-    if not mets.get("ok"):
-        return {"ok": False, "op": "planner.plan.targets", "error": {"code": "UPSTREAM_METRICS", "message": str(mets)}}
-    plans = await planner_plan_get(student_id=sid, spreadsheet_id=spid)
-    if not plans.get("ok"):
-        return {"ok": False, "op": "planner.plan.targets", "error": {"code": "UPSTREAM_PLANS", "message": str(plans)}}
-
-    id_items = (ids.get("data") or {}).get("items") or []
-    rows_with_book = set(int(it.get("row")) for it in id_items if it.get("row"))
-    row_to_book = {int(it["row"]): it.get("book_id") for it in id_items if it.get("row")}
-
-    # 目次/numbering 情報を書籍ごとに収集（簡易）
-    unique_book_ids = [it.get("book_id") for it in id_items if it.get("book_id")]
-    book_meta: dict[str, dict] = {}
-    if unique_book_ids:
-        try:
-            bres = await books_get(book_ids=list(dict.fromkeys(unique_book_ids)))
-            if isinstance(bres, dict) and bres.get("ok"):
-                for b in ((bres.get("data") or {}).get("books") or []):
-                    bid = b.get("id")
-                    chapters = (((b.get("structure") or {}).get("chapters")) or [])
-                    sym = None
-                    max_end = None
-                    starts: list[int] = []
-                    ends: list[int] = []
-                    for ch in chapters:
-                        rng = ch.get("range") or {}
-                        s = rng.get("start")
-                        e = rng.get("end")
-                        try:
-                            if s is not None: starts.append(int(s))
-                            if e is not None: ends.append(int(e))
-                        except Exception:
-                            pass
-                        if not sym:
-                            sym = (ch.get("numbering") or "").strip() or None
-                    max_end = max(ends) if ends else None
-                    # numbering モード推定: リセット か キャリー
-                    mode = None
-                    if len(starts) >= 2 and len(ends) >= 1:
-                        try:
-                            if starts[1] == 1:
-                                mode = "reset"
-                            elif starts[1] == (ends[0] + 1):
-                                mode = "carry"
-                        except Exception:
-                            pass
-                    book_meta[str(bid)] = {"symbol": sym or "問", "max_end": max_end, "mode": mode}
-        except Exception:
-            pass
-
-    def _parse_prev_end(text: str) -> tuple[int | None, str | None]:
-        if not text:
-            return (None, None)
-        s = str(text)
-        # 優先: 範囲表記 X~Y
-        import re
-        m = re.findall(r"(\d+)\s*~\s*(\d+)", s)
-        if m:
-            try:
-                return (int(m[-1][1]), None)
-            except Exception:
-                return (None, None)
-        # 次: 数字の最後を採用
-        m2 = re.findall(r"(\d+)", s)
-        if m2:
-            try:
-                return (int(m2[-1]), None)
-            except Exception:
-                return (None, None)
-        return (None, None)
-
-    # 週ごとの maps
-    wk_metrics: dict[int, dict[int, dict]] = {}
-    for wk in ((mets.get("data") or {}).get("weeks") or []):
-        wi = int(wk.get("week_index"))
-        wk_metrics[wi] = _index_by_row(wk.get("items") or [])
-    wk_plans: dict[int, dict[int, dict]] = {}
-    for wk in ((plans.get("data") or {}).get("weeks") or []):
-        wi = int(wk.get("week_index"))
-        wk_plans[wi] = _index_by_row(wk.get("items") or [])
-
-    targets: list[dict] = []
-    for wi in range(1, week_count + 1):
-        metrics_rows = wk_metrics.get(wi, {})
-        plans_rows = wk_plans.get(wi, {})
-        for r in sorted(rows_with_book):
-            m = metrics_rows.get(r) or {}
-            p = plans_rows.get(r) or {}
-            weekly_minutes = m.get("weekly_minutes")
-            plan_text = (p.get("plan_text") or "").strip()
-            if weekly_minutes is None or str(weekly_minutes) == "":
-                continue  # 週間時間が空 → 対象外
-            if plan_text != "":
-                continue  # 既に埋まっている
-            # 直前週のヒント（prev_range_hint）
-            prev_hint = ""
-            for wj in range(wi-1, 0, -1):
-                pj = wk_plans.get(wj, {}).get(r)
-                if pj and str(pj.get("plan_text") or "").strip():
-                    prev_hint = str(pj.get("plan_text"))
-                    break
-            bid = row_to_book.get(r)
-            ga = (metrics_rows.get(r) or {}).get("guideline_amount")
-            # 簡易サジェスト（prev_range_hint と TOC から計算）
-            prev_end, _ = _parse_prev_end(prev_hint)
-            meta = book_meta.get(str(bid) if bid else "", {})
-            sym = meta.get("symbol") or "問"
-            max_end = meta.get("max_end")
-            start = (int(prev_end) + 1) if isinstance(prev_end, int) else 1
-            suggested_text = None
-            end_of_book = False
-            if isinstance(ga, (int, float)) and ga:
-                try:
-                    e = start + int(ga) - 1
-                    if isinstance(max_end, int) and e > max_end:
-                        e = max_end
-                        end_of_book = True
-                    suggested_text = f"{sym}{start}~{e}" + (" ★完了！" if end_of_book else "")
-                except Exception:
-                    suggested_text = None
-
-            targets.append({
-                "week_index": wi,
-                "row": r,
-                "book_id": bid,
-                "weekly_minutes": weekly_minutes,
-                "guideline_amount": ga,
-                "prev_range_hint": prev_hint,
-                "numbering_symbol": sym,
-                "suggested_plan_text": suggested_text,
-                "suggestion_confidence": "medium" if meta.get("mode") in ("reset","carry") else "low",
-                "end_of_book": end_of_book,
-            })
-
-    return {"ok": True, "op": "planner.plan.targets", "data": {"week_count": week_count, "targets": targets}}
+    sheets = get_sheets_client()
+    return planner_monthly_handler.planner_monthly_filter(
+        sheets,
+        year=int(year),
+        month=int(month),
+        student_id=sid,
+        spreadsheet_id=spid,
+    )
 
 
+# ===== Utility Tools =====
 
 @mcp.tool()
 async def planner_guidance() -> dict:
-    """LLM向け：週間管理シートの計画作成ガイドを返します。
-
-    概要:
-    - シート: 「週間管理」。行4〜30、A列= <月コード><book_id>（例: 258gET007）。月コードは3/4桁（261/2601）。単一月のみ。
-    - 週列: 週1=E/F/G/H、週2=M/N/O/P、週3=U/V/W/X、週4=AC/AD/AE/AF、週5=AK/AL/AM/AN。計画は H/P/X/AF/AN。
-    - 開始日: D1→+7でL1/T1/AB1/AJ1。
-    - 前提: A[row]非空、かつ対象週の「週間時間」非空のときのみ計画を作成。
-    - 書込既定: 空欄のみ埋める（overwrite=false）。上書きは明示時のみ。
-    - 上限: 52文字/セル。超過は要約・分割（次週など）で調整。
-    - 書式: 範囲は「~」、複数はカンマ/改行、自由記述は簡潔に。
-    - 非gID: C列タイトル/D列ガイドラインを尊重（無理な正規化をしない）。
-    - 推奨手順: ids_list→metrics_get→plan_get→plan_propose→（承認後）plan_confirm。
-    """
+    """LLM向け：週間管理シートの計画作成ガイドを返します。"""
     return {
         "ok": True,
         "op": "planner.guidance",
@@ -1120,85 +589,107 @@ async def planner_guidance() -> dict:
             "sheet": {
                 "name": "週間管理",
                 "rows": "4-30",
-                "id_column": "A: <month_code><book_id> (3/4桁月コード許容)",
+                "id_column": "A: <month_code><book_id>",
                 "weeks": {
-                    "1": {"time":"E","unit":"F","guide":"G","plan":"H"},
-                    "2": {"time":"M","unit":"N","guide":"O","plan":"P"},
-                    "3": {"time":"U","unit":"V","guide":"W","plan":"X"},
-                    "4": {"time":"AC","unit":"AD","guide":"AE","plan":"AF"},
-                    "5": {"time":"AK","unit":"AL","guide":"AM","plan":"AN"}
+                    "1": {"time": "E", "unit": "F", "guide": "G", "plan": "H"},
+                    "2": {"time": "M", "unit": "N", "guide": "O", "plan": "P"},
+                    "3": {"time": "U", "unit": "V", "guide": "W", "plan": "X"},
+                    "4": {"time": "AC", "unit": "AD", "guide": "AE", "plan": "AF"},
+                    "5": {"time": "AK", "unit": "AL", "guide": "AM", "plan": "AN"},
                 },
-                "week_starts": ["D1","L1","T1","AB1","AJ1"]
+                "week_starts": ["D1", "L1", "T1", "AB1", "AJ1"],
             },
             "policy": {
-                "preconditions": ["A[row]非空","週間時間セル非空"],
+                "preconditions": ["A[row]非空", "週間時間セル非空"],
                 "overwrite_default": False,
                 "max_chars": 52,
                 "conservative_planning": True,
                 "ask_when_uncertain": True,
-                "finish_and_consult": {
-                    "finish_marker": "★完了！",
-                    "consult_marker": "★相談",
-                    "rule": "参考書の範囲を完了する週は末尾に★完了！を付与。以降の週は★相談にし、ユーザー方針が示されたら従う。"
-                },
-                "toc_resolution": {
-                    "default": "原則は A列の book_id に基づき、該当書籍の目次(TOC)と numbering を取得して計画を作成する。",
-                    "override_when_title_points_else": "ただし、C列のタイトルや既存計画文面が明らかに別の参考書名を指しており、その流れで取り組む指示になっている場合は、その参考書の情報を books_get で取得し、その書籍のTOCに基づいて計画を作成する（運用上の意図を優先）。",
-                    "examples": [
-                        "A列は gMB017(青チャート)だがC列タイトルや文面が '白チャート数2' と明示→白チャートのTOC/numberingを取得して計画",
-                        "A列は '核心' だが文面が '入門英文問題精講' の範囲指示→入門英文問題精講のTOCに従う"
-                    ]
-                }
             },
             "format": {
-                "range": "~ を用いる (No.951~1050, Lesson11~12)",
-                "multi": "カンマ/改行で複数範囲 (9~21,29~46)",
-                "freeform": "短く具体的に (演習・精読・音読)"
+                "range": "~ を用いる",
+                "multi": "カンマ/改行で複数範囲",
+                "freeform": "短く具体的に",
             },
-            "nongid": {"respect_title": True, "use_guideline_note": True},
             "workflow": {
                 "collect": [
-                    "planner_ids_list で対象行(book_id/subject/title/guideline_note)を取得",
-                    "planner_dates_get で週数と開始日を把握(week_count=4/5)",
-                    "planner_plan_get で計画＋metrics(weekly_minutes/unit_load/guideline_amount)を取得",
-                    "過去2–3ヶ月の実績: planner_monthly_filter(year,month) を直近から複数回呼び、同書の過去実績を要約",
-                    "各書籍の目次・仕様: books_get(book_id) でTOC/numbering/単位を確認"
-                ],
-                "plan": [
-                    "原則は保守的: 過去ペースとTOCに沿い、guideline_amount を厳守",
-                    "連続性: 先週の末尾から次の開始へ。重複/飛びや過不足が大きい場合はユーザーに相談",
-                    "終端到達: 完了週に★完了！、以降は★相談（ユーザーが方針を出したら従う）",
-                    "週数遵守: week_count にない週は作成しない",
-                    "表記: 52文字以内、範囲は~、複数は, または改行、非gIDはC/Dの文言を尊重"
+                    "planner_ids_list で対象行を取得",
+                    "planner_dates_get で週数を把握",
+                    "planner_plan_get で計画＋metricsを取得",
                 ],
                 "write": [
-                    "planner_plan_targets で 'A非空・週間時間非空・未入力' の候補を抽出",
-                    "候補から items を作成（週混在可、suggested_plan_text を叩き台に）",
-                    "planner_plan_create(items) で一括作成（高速）。data.warnings と guidance_digest を必ず確認"
-                ]
-            }
-        }
+                    "planner_plan_create(items) で一括作成",
+                ],
+            },
+        },
     }
+
+
+@mcp.tool()
+async def tools_help() -> dict:
+    """このMCPで公開中のツール一覧と使い方を返します。"""
+    tools = [
+        {"name": "books_find", "desc": "参考書の曖昧検索", "args": {"query": "string"}},
+        {"name": "books_get", "desc": "参考書の詳細取得", "args": {"book_id": "string", "book_ids": "string[]"}},
+        {"name": "books_filter", "desc": "条件で参考書を絞り込み", "args": {"where": "dict", "contains": "dict", "limit": "int"}},
+        {"name": "books_list", "desc": "全参考書の一覧", "args": {"limit": "int"}},
+        {"name": "books_create", "desc": "参考書の新規作成", "args": {"title": "string", "subject": "string", "chapters": "list"}},
+        {"name": "books_update", "desc": "参考書の更新（二段階）", "args": {"book_id": "string", "updates": "dict", "confirm_token": "string"}},
+        {"name": "books_delete", "desc": "参考書の削除（二段階）", "args": {"book_id": "string", "confirm_token": "string"}},
+        {"name": "students_list", "desc": "生徒一覧（既定は在塾のみ）", "args": {"limit": "int", "include_all": "bool"}},
+        {"name": "students_find", "desc": "生徒の検索", "args": {"query": "string", "limit": "int"}},
+        {"name": "students_get", "desc": "生徒の詳細取得", "args": {"student_id": "string", "student_ids": "string[]"}},
+        {"name": "students_filter", "desc": "条件で生徒を絞り込み", "args": {"where": "dict", "contains": "dict"}},
+        {"name": "students_create", "desc": "生徒の新規作成", "args": {"record": "dict"}},
+        {"name": "students_update", "desc": "生徒の更新（二段階）", "args": {"student_id": "string", "updates": "dict"}},
+        {"name": "students_delete", "desc": "生徒の削除（二段階）", "args": {"student_id": "string"}},
+        {"name": "planner_ids_list", "desc": "プランナーのID一覧取得", "args": {"student_id": "string"}},
+        {"name": "planner_dates_get", "desc": "週開始日の取得", "args": {"student_id": "string"}},
+        {"name": "planner_dates_set", "desc": "週開始日の設定", "args": {"start_date": "string"}},
+        {"name": "planner_metrics_get", "desc": "週間メトリクスの取得", "args": {"student_id": "string"}},
+        {"name": "planner_plan_get", "desc": "計画セルの取得", "args": {"student_id": "string"}},
+        {"name": "planner_plan_create", "desc": "計画セルの一括作成", "args": {"items": "list"}},
+        {"name": "planner_monthly_filter", "desc": "月間実績の取得", "args": {"year": "int", "month": "int"}},
+        {"name": "planner_guidance", "desc": "計画作成ガイド", "args": {}},
+    ]
+    return {"ok": True, "op": "tools.help", "data": {"tools": tools}}
+
+
+# ===== Server Entry Point =====
 
 if __name__ == "__main__":
     import uvicorn
+    from starlette.applications import Starlette
+    from starlette.routing import Route
+    from starlette.responses import JSONResponse
+
     base_app = mcp.streamable_http_app()
 
-    # Lightweight ASGI wrapper for optional HMAC verification
-    async def app(scope, receive, send):
-        if scope.get("type") == "http":
-            path = scope.get("path") or "/"
-            if path.startswith("/mcp"):
-                headers = scope.get("headers") or []
-                method = scope.get("method", "GET")
-                ok, reason = _verify_hmac(headers, method, path)
-                if not ok:
-                    async def _send_json(status: int, body: dict):
-                        import json
-                        await send({"type":"http.response.start","status": status, "headers": [(b"content-type", b"application/json")]})
-                        await send({"type":"http.response.body","body": json.dumps(body).encode("utf-8")})
-                    await _send_json(401, {"ok": False, "error": {"code": "UNAUTHENTICATED", "message": f"HMAC failed: {reason}"}})
-                    return
-        await base_app(scope, receive, send)
+    async def healthz(request):
+        return JSONResponse({"status": "ok"})
 
-    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", "8080")))
+    async def root(request):
+        return JSONResponse(
+            {"error": "Use /mcp for MCP SSE endpoint or /healthz for health check"},
+            status_code=406,
+        )
+
+    # Combine routes
+    app = Starlette(
+        routes=[
+            Route("/", root),
+            Route("/healthz", healthz),
+        ],
+    )
+
+    # Mount MCP app
+    async def combined_app(scope, receive, send):
+        path = scope.get("path", "/")
+        if path.startswith("/mcp"):
+            await base_app(scope, receive, send)
+        else:
+            await app(scope, receive, send)
+
+    port = int(os.getenv("PORT", "8080"))
+    log(f"Starting server on port {port}")
+    uvicorn.run(combined_app, host="0.0.0.0", port=port)
