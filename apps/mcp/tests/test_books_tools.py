@@ -98,11 +98,12 @@ class TestBooksGet:
             assert result.get("ok") is True
 
     @pytest.mark.asyncio
-    async def test_get_requires_id(self):
+    async def test_get_requires_id(self, mock_sheets_client):
         """Should return error when no ID provided"""
-        result = await books_get()
-        assert result.get("ok") is False
-        assert "error" in result
+        with patch("server.get_sheets_client", return_value=mock_sheets_client):
+            result = await books_get()
+            assert result.get("ok") is False
+            assert "error" in result
 
     @pytest.mark.asyncio
     async def test_get_handles_not_found(self, mock_sheets_client):
