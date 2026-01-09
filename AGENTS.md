@@ -44,38 +44,31 @@
 
 ```
 cram-books-mcp/
-├── apps/
-│   └── mcp/                    # MCP Server (Python FastMCP + Google Sheets API)
-│       ├── server.py           # MCPツール定義
-│       ├── sheets_client.py    # Google Sheets APIラッパー
-│       ├── config.py           # 定数定義（シートID、列マッピング等）
-│       ├── env_loader.py       # 環境変数/クレデンシャル読み込み
-│       ├── core/               # コア機能
-│       │   ├── base_handler.py # BaseHandler（共通CRUD）
-│       │   └── preview_cache.py
-│       ├── handlers/           # ビジネスロジック（OOPハンドラー）
-│       │   ├── books/          # BooksHandler + SearchMixin
-│       │   ├── students/       # StudentsHandler
-│       │   └── planner/        # PlannerHandler
-│       ├── lib/                # 共通ユーティリティ
-│       │   ├── common.py       # normalize, ok, ng等
-│       │   ├── sheet_utils.py  # norm_header, pick_col, tokenize等
-│       │   ├── id_rules.py     # decide_prefix, next_id_for_prefix
-│       │   ├── input_parser.py # InputParser
-│       │   └── preview_cache.py
-│       ├── tests/              # pytest テスト（257件）
-│       ├── Dockerfile
-│       ├── railway.json        # Railway設定
-│       └── Procfile
-├── scripts/
-│   └── deploy_mcp.sh           # Railway デプロイ
+├── server.py              # MCPツール定義
+├── sheets_client.py       # Google Sheets APIラッパー
+├── config.py              # 定数定義（シートID、列マッピング等）
+├── env_loader.py          # 環境変数/クレデンシャル読み込み
+├── conftest.py            # pytest フィクスチャ
+├── core/                  # コア機能
+│   └── base_handler.py    # BaseHandler（共通CRUD）
+├── handlers/              # ビジネスロジック（OOPハンドラー）
+│   ├── books/             # BooksHandler + SearchMixin
+│   ├── students/          # StudentsHandler
+│   └── planner/           # PlannerHandler
+├── lib/                   # 共通ユーティリティ
+│   ├── common.py          # normalize, ok, ng等
+│   ├── sheet_utils.py     # norm_header, pick_col, tokenize等
+│   ├── id_rules.py        # decide_prefix, next_id_for_prefix
+│   ├── input_parser.py    # InputParser
+│   └── preview_cache.py
+├── tests/                 # pytest テスト（257件）
 ├── docs/
-│   ├── ARCHITECTURE.md         # アーキテクチャ概要
-│   ├── TESTING.md              # テストガイド
-│   ├── speed_planner_weekly.md
-│   └── planner_monthly.md
-├── AGENTS.md, README.md, CLAUDE.md, CONTRIBUTING.md, PROGRESS.md
-└── .gitignore
+│   ├── ARCHITECTURE.md    # アーキテクチャ概要
+│   └── TESTING.md         # テストガイド
+├── Dockerfile
+├── Procfile
+├── pyproject.toml
+└── uv.lock
 ```
 
 ## セットアップ
@@ -99,8 +92,6 @@ cram-books-mcp/
 ### 2) MCP サーバーセットアップ（ローカル）
 
 ```bash
-cd apps/mcp
-
 # .envファイルを作成
 cp .env.example .env
 # GOOGLE_CREDENTIALS_FILE にJSONキーのパスを設定
@@ -117,15 +108,13 @@ curl http://localhost:8080/healthz
 ```bash
 # Railway CLIログイン＆プロジェクトリンク
 railway login
-cd apps/mcp
 railway link
 
 # 環境変数設定
 railway variables set GOOGLE_CREDENTIALS_JSON="$(cat /path/to/service-account.json)"
 
-# デプロイ
-railway up
-# または: scripts/deploy_mcp.sh
+# デプロイ（mainへのpushで自動デプロイ）
+git push origin main
 ```
 
 ## MCP ツール一覧
@@ -205,8 +194,6 @@ railway up
 ## テスト
 
 ```bash
-cd apps/mcp
-
 # 全テスト実行
 uv run pytest tests/
 
@@ -220,10 +207,10 @@ uv run pytest tests/test_books_tools.py -v
 | テスト | 件数 |
 |--------|------|
 | helpers（lib/*） | 66 |
-| books tools | 26 |
-| students tools | 25 |
-| planner tools | 24 |
-| **合計** | 141 |
+| handlers | 96 |
+| tools | 87 |
+| core | 8 |
+| **合計** | **257** |
 
 ## トラブルシューティング
 
@@ -239,7 +226,6 @@ uv run pytest tests/test_books_tools.py -v
 
 ```bash
 # ローカルサーバー起動（ログ出力あり）
-cd apps/mcp
 uv run python server.py
 
 # MCP Inspectorでテスト
@@ -285,9 +271,7 @@ Claude: その参考書の詳細を教えてください
 ## CI/CD（GitHub Actions）
 
 - **test.yml**: PR/push時に自動テスト（pytest）
-- **deploy.yml**: 手動またはコミットメッセージトリガーでデプロイ
-  - `[deploy-mcp]`: Railwayにデプロイ
-  - 必要シークレット: `RAILWAY_TOKEN`
+- mainへのpushでRailway自動デプロイ
 
 ## ベストプラクティス
 

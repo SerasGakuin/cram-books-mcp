@@ -1,6 +1,6 @@
 # CRAM Books MCP
 
-LLM と Google スプレッドシート（参考書マスター／生徒マスター／スピードプランナー）を安全に接続するためのモノレポです。MCP（Model Context Protocol）サーバーがGoogle Sheets APIを直接呼び出し、Service Account認証で安定稼働します。
+LLM と Google スプレッドシート（参考書マスター／生徒マスター／スピードプランナー）を安全に接続するためのMCPサーバーです。MCP（Model Context Protocol）サーバーがGoogle Sheets APIを直接呼び出し、Service Account認証で安定稼働します。
 
 ```
 [ユーザー/Claude]
@@ -25,8 +25,8 @@ LLM と Google スプレッドシート（参考書マスター／生徒マス�
 - 生徒マスター（Students）
   - 在塾が既定の list/find/get/filter と、create/update/delete
 - スピードプランナー（週間管理）
-  - 計画の読取（plan_get）と目安（週時間・単位処理量・目安処理量）を“統合で”取得
-  - 今月の“埋めるべきセル”の自動抽出（plan_targets）＋ TOCに基づく簡易サジェスト（suggested_plan_text/numbering_symbol）
+  - 計画の読取（plan_get）と目安（週時間・単位処理量・目安処理量）を"統合で"取得
+  - 今月の"埋めるべきセル"の自動抽出（plan_targets）＋ TOCに基づく簡易サジェスト（suggested_plan_text/numbering_symbol）
   - 計画の一括作成（planner_plan_create）。週混在OKで1コール反映。MUST: 実行前に planner_guidance を参照（create 応答にも guidance_digest を同梱）
   - propose/confirm は廃止。既存クライアント互換は維持するが、新規は create を使用
   - 確定はバッチ書込み（`items[]` 最適化）
@@ -64,31 +64,27 @@ LLM と Google スプレッドシート（参考書マスター／生徒マス�
 
 ### 2.1 ディレクトリ構成
 ```
-apps/
- └─ mcp/        # MCP Server (Python FastMCP + Google Sheets API)
-     ├─ server.py          # MCPツール定義
-     ├─ sheets_client.py   # Google Sheets APIラッパー
-     ├─ config.py          # 定数定義（シートID、列マッピング等）
-     ├─ env_loader.py      # 環境変数/クレデンシャル読み込み
-     ├─ core/              # コア機能
-     │   ├─ base_handler.py  # BaseHandler（共通CRUD）
-     │   └─ preview_cache.py # プレビューキャッシュ
-     ├─ handlers/          # ビジネスロジック（OOPハンドラー）
-     │   ├─ books/         # BooksHandler + SearchMixin
-     │   ├─ students/      # StudentsHandler
-     │   └─ planner/       # PlannerHandler
-     ├─ lib/               # 共通ユーティリティ
-     ├─ tests/             # pytest テスト（257件）
-     ├─ Dockerfile
-     ├─ railway.json       # Railway設定
-     └─ Procfile
-scripts/
- └─ deploy_mcp.sh         # Railway デプロイ
-docs/
- ├─ ARCHITECTURE.md       # アーキテクチャ概要
- ├─ TESTING.md            # テストガイド
- ├─ speed_planner_weekly.md
- └─ planner_monthly.md
+cram-books-mcp/
+├── server.py              # MCPツール定義
+├── sheets_client.py       # Google Sheets APIラッパー
+├── config.py              # 定数定義（シートID、列マッピング等）
+├── env_loader.py          # 環境変数/クレデンシャル読み込み
+├── conftest.py            # pytest フィクスチャ
+├── core/                  # コア機能
+│   └── base_handler.py    # BaseHandler（共通CRUD）
+├── handlers/              # ビジネスロジック（OOPハンドラー）
+│   ├── books/             # BooksHandler + SearchMixin
+│   ├── students/          # StudentsHandler
+│   └── planner/           # PlannerHandler
+├── lib/                   # 共通ユーティリティ
+├── tests/                 # pytest テスト（257件）
+├── docs/
+│   ├── ARCHITECTURE.md    # アーキテクチャ概要
+│   └── TESTING.md         # テストガイド
+├── Dockerfile
+├── Procfile
+├── pyproject.toml
+└── uv.lock
 ```
 
 ### 2.2 依存環境
@@ -103,8 +99,6 @@ docs/
 
 ### 2.4 MCP Server（ローカル）
 ```bash
-cd apps/mcp
-
 # .envファイルを作成（.env.exampleを参考）
 cp .env.example .env
 # GOOGLE_CREDENTIALS_FILE にJSONキーのパスを設定
@@ -123,15 +117,13 @@ npm install -g @railway/cli
 
 # ログイン＆プロジェクトリンク
 railway login
-cd apps/mcp
 railway link
 
 # 環境変数設定
 railway variables set GOOGLE_CREDENTIALS_JSON="$(cat /path/to/service-account.json)"
 
-# デプロイ
-railway up
-# または: scripts/deploy_mcp.sh
+# デプロイ（mainへのpushで自動デプロイ）
+git push origin main
 ```
 - ENV: `GOOGLE_CREDENTIALS_JSON`（必須）または `GOOGLE_CREDENTIALS_FILE`（ローカル用）
 
@@ -144,15 +136,13 @@ railway up
 | MCP全体（handlers + tools + lib） | 257 | ~85% |
 
 ```bash
-# MCP
-cd apps/mcp && uv run pytest tests/  # または --cov=.
+# テスト実行
+uv run pytest tests/  # または --cov=.
 ```
 
 ### 2.7 CI/CD（GitHub Actions）
 - **test.yml**: PR/push時に自動テスト（pytest）
-- **deploy.yml**: 手動またはコミットメッセージトリガーでデプロイ
-  - `[deploy-mcp]`: Railwayにデプロイ
-  - 必要シークレット: `RAILWAY_TOKEN`
+- mainへのpushでRailway自動デプロイ
 
 ### 2.8 Claude / ChatGPT
 - Claude: 本mainの多機能MCPをそのまま利用（任意ツール呼び出し）

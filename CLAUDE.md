@@ -87,7 +87,7 @@ def books_find(query, sheets_client):
 
 ```bash
 # リファクタリング開始前（必須）
-cd apps/mcp && uv run pytest tests/ -v
+uv run pytest tests/ -v
 
 # 各変更後（必須）
 uv run pytest tests/ -v --tb=short
@@ -144,13 +144,13 @@ uv run pytest tests/ --cov=. --cov-report=term-missing
 ## プロジェクト構造
 
 ```
-apps/mcp/
+cram-books-mcp/
 ├── server.py              # MCPサーバーエントリポイント
 ├── config.py              # 設定（シートID、列定義）
 ├── sheets_client.py       # Google Sheets APIクライアント
+├── conftest.py            # pytest フィクスチャ
 ├── core/                  # コア機能
-│   ├── base_handler.py    # BaseHandler（共通CRUD）
-│   └── preview_cache.py   # プレビューキャッシュ
+│   └── base_handler.py    # BaseHandler（共通CRUD）
 ├── handlers/              # ドメインハンドラー（OOP）
 │   ├── __init__.py        # BooksHandler等のexport
 │   ├── books/
@@ -187,7 +187,7 @@ apps/mcp/
 
 ```bash
 # テスト実行
-cd apps/mcp && uv run pytest tests/ -v
+uv run pytest tests/ -v
 
 # カバレッジ付きテスト
 uv run pytest tests/ --cov=. --cov-report=term-missing

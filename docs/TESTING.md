@@ -15,8 +15,6 @@
 ## テスト実行
 
 ```bash
-cd apps/mcp
-
 # 全テスト実行
 uv run pytest tests/
 
@@ -39,7 +37,7 @@ uv run pytest tests/test_helpers.py::TestNormalize::test_basic_normalization -v
 ## テスト構成
 
 ```
-apps/mcp/tests/
+tests/
 ├── conftest.py              # 共通フィクスチャ
 ├── test_helpers.py          # lib/のテスト (66件)
 ├── test_base_handler.py     # core/base_handler (15件)
@@ -216,9 +214,7 @@ GitHub Actionsで自動テスト実行:
 ```yaml
 # .github/workflows/test.yml
 - name: Run tests
-  run: |
-    cd apps/mcp
-    uv run pytest tests/ --cov=. --cov-report=term-missing
+  run: uv run pytest tests/ --cov=. --cov-report=term-missing
 ```
 
 ## トラブルシューティング
@@ -226,8 +222,7 @@ GitHub Actionsで自動テスト実行:
 ### 1. ImportError
 
 ```bash
-# apps/mcp ディレクトリで実行しているか確認
-cd apps/mcp
+# リポジトリルートで実行しているか確認
 uv sync  # 依存関係再インストール
 ```
 

@@ -51,14 +51,14 @@
 ## ディレクトリ構成
 
 ```
-apps/mcp/
+cram-books-mcp/
 ├── server.py              # MCPサーバーエントリポイント
 ├── config.py              # 設定（シートID、列定義）
 ├── sheets_client.py       # Google Sheets APIクライアント
+├── conftest.py            # pytest フィクスチャ
 │
 ├── core/                  # コア機能
-│   ├── base_handler.py    # BaseHandler（共通CRUD）
-│   └── preview_cache.py   # プレビューキャッシュ
+│   └── base_handler.py    # BaseHandler（共通CRUD）
 │
 ├── handlers/              # ドメインハンドラー（OOP）
 │   ├── __init__.py        # Handler export
