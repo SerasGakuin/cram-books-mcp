@@ -29,8 +29,10 @@ class TestBooksFind:
     @pytest.mark.asyncio
     async def test_find_book_success(self, mock_sheets_client, mock_handler_responses):
         """Should find books matching query"""
+        mock_handler = MagicMock()
+        mock_handler.find.return_value = mock_handler_responses["books.find"]
         with patch("server.get_sheets_client", return_value=mock_sheets_client), \
-             patch("handlers.books.books_find", return_value=mock_handler_responses["books.find"]):
+             patch("server.BooksHandler", return_value=mock_handler):
             result = await books_find(query="青チャート")
             assert result.get("ok") is True
             assert "candidates" in result.get("data", {})
@@ -52,8 +54,10 @@ class TestBooksFind:
     @pytest.mark.asyncio
     async def test_find_with_dict_input(self, mock_sheets_client, mock_handler_responses):
         """Should accept dict with query key"""
+        mock_handler = MagicMock()
+        mock_handler.find.return_value = mock_handler_responses["books.find"]
         with patch("server.get_sheets_client", return_value=mock_sheets_client), \
-             patch("handlers.books.books_find", return_value=mock_handler_responses["books.find"]):
+             patch("server.BooksHandler", return_value=mock_handler):
             result = await books_find(query={"query": "青チャート"})
             assert result.get("ok") is True
 
@@ -61,8 +65,10 @@ class TestBooksFind:
     async def test_find_handles_error(self, mock_sheets_client):
         """Should handle handler errors gracefully"""
         error_response = {"ok": False, "op": "books.find", "error": {"code": "NOT_FOUND", "message": "No books found"}}
+        mock_handler = MagicMock()
+        mock_handler.find.return_value = error_response
         with patch("server.get_sheets_client", return_value=mock_sheets_client), \
-             patch("handlers.books.books_find", return_value=error_response):
+             patch("server.BooksHandler", return_value=mock_handler):
             result = await books_find(query="NonExistent")
             assert result.get("ok") is False
 
@@ -73,8 +79,10 @@ class TestBooksGet:
     @pytest.mark.asyncio
     async def test_get_single_book(self, mock_sheets_client, mock_handler_responses):
         """Should get single book by ID"""
+        mock_handler = MagicMock()
+        mock_handler.get.return_value = mock_handler_responses["books.get"]
         with patch("server.get_sheets_client", return_value=mock_sheets_client), \
-             patch("handlers.books.books_get", return_value=mock_handler_responses["books.get"]):
+             patch("server.BooksHandler", return_value=mock_handler):
             result = await books_get(book_id="gMB001")
             assert result.get("ok") is True
             assert "book" in result.get("data", {})
@@ -82,8 +90,10 @@ class TestBooksGet:
     @pytest.mark.asyncio
     async def test_get_multiple_books(self, mock_sheets_client, mock_handler_responses):
         """Should get multiple books by IDs"""
+        mock_handler = MagicMock()
+        mock_handler.get_multiple.return_value = {"ok": True, "op": "books.get", "data": {"books": []}}
         with patch("server.get_sheets_client", return_value=mock_sheets_client), \
-             patch("handlers.books.books_get", return_value={"ok": True, "op": "books.get", "data": {"books": []}}):
+             patch("server.BooksHandler", return_value=mock_handler):
             result = await books_get(book_ids=["gMB001", "gMB002"])
             assert result.get("ok") is True
 
@@ -98,8 +108,10 @@ class TestBooksGet:
     async def test_get_handles_not_found(self, mock_sheets_client):
         """Should handle book not found error"""
         error_response = {"ok": False, "op": "books.get", "error": {"code": "NOT_FOUND", "message": "Book not found"}}
+        mock_handler = MagicMock()
+        mock_handler.get.return_value = error_response
         with patch("server.get_sheets_client", return_value=mock_sheets_client), \
-             patch("handlers.books.books_get", return_value=error_response):
+             patch("server.BooksHandler", return_value=mock_handler):
             result = await books_get(book_id="nonexistent")
             assert result.get("ok") is False
 
@@ -110,8 +122,10 @@ class TestBooksFilter:
     @pytest.mark.asyncio
     async def test_filter_by_subject(self, mock_sheets_client, mock_handler_responses):
         """Should filter books by subject"""
+        mock_handler = MagicMock()
+        mock_handler.filter.return_value = mock_handler_responses["books.filter"]
         with patch("server.get_sheets_client", return_value=mock_sheets_client), \
-             patch("handlers.books.books_filter", return_value=mock_handler_responses["books.filter"]):
+             patch("server.BooksHandler", return_value=mock_handler):
             result = await books_filter(where={"教科": "数学"})
             assert result.get("ok") is True
             assert "books" in result.get("data", {})
@@ -119,24 +133,30 @@ class TestBooksFilter:
     @pytest.mark.asyncio
     async def test_filter_by_contains(self, mock_sheets_client, mock_handler_responses):
         """Should filter books by partial match"""
+        mock_handler = MagicMock()
+        mock_handler.filter.return_value = mock_handler_responses["books.filter"]
         with patch("server.get_sheets_client", return_value=mock_sheets_client), \
-             patch("handlers.books.books_filter", return_value=mock_handler_responses["books.filter"]):
+             patch("server.BooksHandler", return_value=mock_handler):
             result = await books_filter(contains={"参考書名": "チャート"})
             assert result.get("ok") is True
 
     @pytest.mark.asyncio
     async def test_filter_with_limit(self, mock_sheets_client, mock_handler_responses):
         """Should respect limit parameter"""
+        mock_handler = MagicMock()
+        mock_handler.filter.return_value = mock_handler_responses["books.filter"]
         with patch("server.get_sheets_client", return_value=mock_sheets_client), \
-             patch("handlers.books.books_filter", return_value=mock_handler_responses["books.filter"]):
+             patch("server.BooksHandler", return_value=mock_handler):
             result = await books_filter(limit=10)
             assert result.get("ok") is True
 
     @pytest.mark.asyncio
     async def test_filter_no_params_returns_all(self, mock_sheets_client, mock_handler_responses):
         """Should return all books when no filter specified"""
+        mock_handler = MagicMock()
+        mock_handler.filter.return_value = mock_handler_responses["books.filter"]
         with patch("server.get_sheets_client", return_value=mock_sheets_client), \
-             patch("handlers.books.books_filter", return_value=mock_handler_responses["books.filter"]):
+             patch("server.BooksHandler", return_value=mock_handler):
             result = await books_filter()
             assert result.get("ok") is True
 
@@ -147,8 +167,10 @@ class TestBooksCreate:
     @pytest.mark.asyncio
     async def test_create_book(self, mock_sheets_client, mock_handler_responses):
         """Should create new book"""
+        mock_handler = MagicMock()
+        mock_handler.create.return_value = mock_handler_responses["books.create"]
         with patch("server.get_sheets_client", return_value=mock_sheets_client), \
-             patch("handlers.books.books_create", return_value=mock_handler_responses["books.create"]):
+             patch("server.BooksHandler", return_value=mock_handler):
             result = await books_create(title="New Book", subject="数学")
             assert result.get("ok") is True
             assert result.get("data", {}).get("id") is not None
@@ -156,8 +178,10 @@ class TestBooksCreate:
     @pytest.mark.asyncio
     async def test_create_with_chapters(self, mock_sheets_client, mock_handler_responses):
         """Should create book with chapter information"""
+        mock_handler = MagicMock()
+        mock_handler.create.return_value = mock_handler_responses["books.create"]
         with patch("server.get_sheets_client", return_value=mock_sheets_client), \
-             patch("handlers.books.books_create", return_value=mock_handler_responses["books.create"]):
+             patch("server.BooksHandler", return_value=mock_handler):
             chapters = [{"title": "Chapter 1", "range": {"start": 1, "end": 50}}]
             result = await books_create(title="New Book", subject="数学", chapters=chapters)
             assert result.get("ok") is True
@@ -165,8 +189,10 @@ class TestBooksCreate:
     @pytest.mark.asyncio
     async def test_create_with_custom_prefix(self, mock_sheets_client, mock_handler_responses):
         """Should use custom ID prefix"""
+        mock_handler = MagicMock()
+        mock_handler.create.return_value = mock_handler_responses["books.create"]
         with patch("server.get_sheets_client", return_value=mock_sheets_client), \
-             patch("handlers.books.books_create", return_value=mock_handler_responses["books.create"]):
+             patch("server.BooksHandler", return_value=mock_handler):
             result = await books_create(title="Custom", subject="英語", id_prefix="custom")
             assert result.get("ok") is True
 
@@ -177,8 +203,10 @@ class TestBooksUpdate:
     @pytest.mark.asyncio
     async def test_update_preview(self, mock_sheets_client, mock_handler_responses):
         """Should return preview without confirm_token"""
+        mock_handler = MagicMock()
+        mock_handler.update.return_value = mock_handler_responses["books.update_preview"]
         with patch("server.get_sheets_client", return_value=mock_sheets_client), \
-             patch("handlers.books.books_update", return_value=mock_handler_responses["books.update_preview"]):
+             patch("server.BooksHandler", return_value=mock_handler):
             result = await books_update(book_id="gMB001", updates={"参考書名": "Updated"})
             data = result.get("data", {})
             assert data.get("requires_confirmation") is True
@@ -187,8 +215,10 @@ class TestBooksUpdate:
     @pytest.mark.asyncio
     async def test_update_confirm(self, mock_sheets_client, mock_handler_responses):
         """Should apply update with valid confirm_token"""
+        mock_handler = MagicMock()
+        mock_handler.update.return_value = mock_handler_responses["books.update_confirm"]
         with patch("server.get_sheets_client", return_value=mock_sheets_client), \
-             patch("handlers.books.books_update", return_value=mock_handler_responses["books.update_confirm"]):
+             patch("server.BooksHandler", return_value=mock_handler):
             result = await books_update(book_id="gMB001", confirm_token="valid-token")
             assert result.get("ok") is True
             assert result.get("data", {}).get("updated") is True
@@ -204,8 +234,10 @@ class TestBooksUpdate:
     async def test_update_invalid_token(self, mock_sheets_client):
         """Should handle invalid confirm_token"""
         error_response = {"ok": False, "op": "books.update", "error": {"code": "CONFIRM_EXPIRED", "message": "Token expired"}}
+        mock_handler = MagicMock()
+        mock_handler.update.return_value = error_response
         with patch("server.get_sheets_client", return_value=mock_sheets_client), \
-             patch("handlers.books.books_update", return_value=error_response):
+             patch("server.BooksHandler", return_value=mock_handler):
             result = await books_update(book_id="gMB001", confirm_token="invalid")
             assert result.get("ok") is False
 
@@ -216,8 +248,10 @@ class TestBooksDelete:
     @pytest.mark.asyncio
     async def test_delete_preview(self, mock_sheets_client, mock_handler_responses):
         """Should return preview without confirm_token"""
+        mock_handler = MagicMock()
+        mock_handler.delete.return_value = mock_handler_responses["books.delete_preview"]
         with patch("server.get_sheets_client", return_value=mock_sheets_client), \
-             patch("handlers.books.books_delete", return_value=mock_handler_responses["books.delete_preview"]):
+             patch("server.BooksHandler", return_value=mock_handler):
             result = await books_delete(book_id="gMB001")
             data = result.get("data", {})
             assert data.get("requires_confirmation") is True
@@ -226,8 +260,10 @@ class TestBooksDelete:
     @pytest.mark.asyncio
     async def test_delete_confirm(self, mock_sheets_client, mock_handler_responses):
         """Should delete with valid confirm_token"""
+        mock_handler = MagicMock()
+        mock_handler.delete.return_value = mock_handler_responses["books.delete_confirm"]
         with patch("server.get_sheets_client", return_value=mock_sheets_client), \
-             patch("handlers.books.books_delete", return_value=mock_handler_responses["books.delete_confirm"]):
+             patch("server.BooksHandler", return_value=mock_handler):
             result = await books_delete(book_id="gMB001", confirm_token="valid-token")
             assert result.get("ok") is True
             assert result.get("data", {}).get("deleted") is True
@@ -246,8 +282,10 @@ class TestBooksList:
     @pytest.mark.asyncio
     async def test_list_all_books(self, mock_sheets_client, mock_handler_responses):
         """Should list all books"""
+        mock_handler = MagicMock()
+        mock_handler.list.return_value = mock_handler_responses["books.list"]
         with patch("server.get_sheets_client", return_value=mock_sheets_client), \
-             patch("handlers.books.books_list", return_value=mock_handler_responses["books.list"]):
+             patch("server.BooksHandler", return_value=mock_handler):
             result = await books_list()
             assert result.get("ok") is True
             assert "books" in result.get("data", {})
@@ -255,7 +293,9 @@ class TestBooksList:
     @pytest.mark.asyncio
     async def test_list_with_limit(self, mock_sheets_client, mock_handler_responses):
         """Should respect limit parameter"""
+        mock_handler = MagicMock()
+        mock_handler.list.return_value = mock_handler_responses["books.list"]
         with patch("server.get_sheets_client", return_value=mock_sheets_client), \
-             patch("handlers.books.books_list", return_value=mock_handler_responses["books.list"]):
+             patch("server.BooksHandler", return_value=mock_handler):
             result = await books_list(limit=5)
             assert result.get("ok") is True

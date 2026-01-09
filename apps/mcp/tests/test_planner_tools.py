@@ -31,8 +31,10 @@ class TestPlannerIdsList:
     @pytest.mark.asyncio
     async def test_list_ids_with_spreadsheet_id(self, mock_sheets_client, mock_handler_responses):
         """Should list planner IDs with spreadsheet_id"""
+        mock_handler = MagicMock()
+        mock_handler.ids_list.return_value = mock_handler_responses["planner.ids_list"]
         with patch("server.get_sheets_client", return_value=mock_sheets_client), \
-             patch("handlers.planner.planner_ids_list", return_value=mock_handler_responses["planner.ids_list"]):
+             patch("server.PlannerHandler", return_value=mock_handler):
             result = await planner_ids_list(spreadsheet_id="test-sheet-id")
             assert result.get("ok") is True
             assert "items" in result.get("data", {})
@@ -40,8 +42,10 @@ class TestPlannerIdsList:
     @pytest.mark.asyncio
     async def test_list_ids_with_student_id(self, mock_sheets_client, mock_handler_responses):
         """Should list planner IDs with student_id"""
+        mock_handler = MagicMock()
+        mock_handler.ids_list.return_value = mock_handler_responses["planner.ids_list"]
         with patch("server.get_sheets_client", return_value=mock_sheets_client), \
-             patch("handlers.planner.planner_ids_list", return_value=mock_handler_responses["planner.ids_list"]):
+             patch("server.PlannerHandler", return_value=mock_handler):
             result = await planner_ids_list(student_id="S001")
             assert result.get("ok") is True
 
@@ -59,8 +63,10 @@ class TestPlannerDatesGet:
     @pytest.mark.asyncio
     async def test_get_dates(self, mock_sheets_client, mock_handler_responses):
         """Should get week start dates"""
+        mock_handler = MagicMock()
+        mock_handler.dates_get.return_value = mock_handler_responses["planner.dates.get"]
         with patch("server.get_sheets_client", return_value=mock_sheets_client), \
-             patch("handlers.planner.planner_dates_get", return_value=mock_handler_responses["planner.dates.get"]):
+             patch("server.PlannerHandler", return_value=mock_handler):
             result = await planner_dates_get(spreadsheet_id="test-sheet-id")
             assert result.get("ok") is True
             assert "week_starts" in result.get("data", {})
@@ -73,8 +79,10 @@ class TestPlannerDatesSet:
     async def test_set_dates(self, mock_sheets_client):
         """Should set week start date"""
         response = {"ok": True, "op": "planner.dates.set", "data": {"updated": True}}
+        mock_handler = MagicMock()
+        mock_handler.dates_set.return_value = response
         with patch("server.get_sheets_client", return_value=mock_sheets_client), \
-             patch("handlers.planner.planner_dates_set", return_value=response):
+             patch("server.PlannerHandler", return_value=mock_handler):
             result = await planner_dates_set(
                 start_date="2025-08-04",
                 spreadsheet_id="test-sheet-id"
@@ -98,8 +106,10 @@ class TestPlannerMetricsGet:
     @pytest.mark.asyncio
     async def test_get_metrics(self, mock_sheets_client, mock_handler_responses):
         """Should get planner metrics"""
+        mock_handler = MagicMock()
+        mock_handler.metrics_get.return_value = mock_handler_responses["planner.metrics.get"]
         with patch("server.get_sheets_client", return_value=mock_sheets_client), \
-             patch("handlers.planner.planner_metrics_get", return_value=mock_handler_responses["planner.metrics.get"]):
+             patch("server.PlannerHandler", return_value=mock_handler):
             result = await planner_metrics_get(spreadsheet_id="test-sheet-id")
             assert result.get("ok") is True
             assert "weeks" in result.get("data", {})
@@ -111,9 +121,11 @@ class TestPlannerPlanGet:
     @pytest.mark.asyncio
     async def test_get_plan(self, mock_sheets_client, mock_handler_responses):
         """Should get plan data with metrics"""
+        mock_handler = MagicMock()
+        mock_handler.plan_get.return_value = mock_handler_responses["planner.plan.get"]
+        mock_handler.metrics_get.return_value = mock_handler_responses["planner.metrics.get"]
         with patch("server.get_sheets_client", return_value=mock_sheets_client), \
-             patch("handlers.planner.planner_plan_get", return_value=mock_handler_responses["planner.plan.get"]), \
-             patch("handlers.planner.planner_metrics_get", return_value=mock_handler_responses["planner.metrics.get"]):
+             patch("server.PlannerHandler", return_value=mock_handler):
             result = await planner_plan_get(spreadsheet_id="test-sheet-id")
             assert result.get("ok") is True
             assert "weeks" in result.get("data", {})
@@ -125,8 +137,10 @@ class TestPlannerPlanSet:
     @pytest.mark.asyncio
     async def test_set_plan(self, mock_sheets_client, mock_handler_responses):
         """Should set plan entry"""
+        mock_handler = MagicMock()
+        mock_handler.plan_set.return_value = mock_handler_responses["planner.plan.set"]
         with patch("server.get_sheets_client", return_value=mock_sheets_client), \
-             patch("handlers.planner.planner_plan_set", return_value=mock_handler_responses["planner.plan.set"]):
+             patch("server.PlannerHandler", return_value=mock_handler):
             result = await planner_plan_set(
                 week_index=1,
                 row=4,
@@ -142,9 +156,11 @@ class TestPlannerPlanCreate:
     @pytest.mark.asyncio
     async def test_create_plan(self, mock_sheets_client, mock_handler_responses):
         """Should create plan entries"""
+        mock_handler = MagicMock()
+        mock_handler.dates_get.return_value = mock_handler_responses["planner.dates.get"]
+        mock_handler.plan_set.return_value = mock_handler_responses["planner.plan.set"]
         with patch("server.get_sheets_client", return_value=mock_sheets_client), \
-             patch("handlers.planner.planner_dates_get", return_value=mock_handler_responses["planner.dates.get"]), \
-             patch("handlers.planner.planner_plan_set", return_value=mock_handler_responses["planner.plan.set"]):
+             patch("server.PlannerHandler", return_value=mock_handler):
             items = [{"week_index": 1, "row": 4, "plan_text": "p1-10"}]
             result = await planner_plan_create(items=items, spreadsheet_id="test-sheet-id")
             assert result.get("ok") is True
@@ -182,8 +198,10 @@ class TestPlannerMonthlyFilter:
                 ]
             }
         }
+        mock_handler = MagicMock()
+        mock_handler.monthly_filter.return_value = response
         with patch("server.get_sheets_client", return_value=mock_sheets_client), \
-             patch("handlers.planner_monthly.planner_monthly_filter", return_value=response):
+             patch("server.PlannerHandler", return_value=mock_handler):
             result = await planner_monthly_filter(
                 year=25,
                 month=8,
@@ -200,8 +218,10 @@ class TestPlannerMonthlyFilter:
             "op": "planner.monthly.filter",
             "data": {"year": 25, "month": 8, "count": 0, "items": []}
         }
+        mock_handler = MagicMock()
+        mock_handler.monthly_filter.return_value = response
         with patch("server.get_sheets_client", return_value=mock_sheets_client), \
-             patch("handlers.planner_monthly.planner_monthly_filter", return_value=response):
+             patch("server.PlannerHandler", return_value=mock_handler):
             result = await planner_monthly_filter(
                 year=2025,
                 month=8,

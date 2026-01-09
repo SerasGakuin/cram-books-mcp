@@ -15,13 +15,12 @@ except ImportError:
     from fastmcp import FastMCP
     TransportSecuritySettings = None
 
-# Import handlers (direct Google Sheets API access)
+# Import handlers (OOP-based handler classes)
 from sheets_client import get_sheets_client
-from handlers import books as books_handler
-from handlers import students as students_handler
-from handlers import planner as planner_handler
-from handlers import planner_monthly as planner_monthly_handler
-from lib.input_parser import strip_quotes as _strip_quotes, coerce_str as _coerce_str, as_list as _as_list
+from handlers.books_handler import BooksHandler
+from handlers.students_handler import StudentsHandler
+from handlers.planner_handler import PlannerHandler
+from lib.input_parser import coerce_str as _coerce_str, as_list as _as_list
 
 # Configure transport security to allow Railway domain
 transport_security = None
@@ -72,7 +71,8 @@ async def books_find(query: Any) -> dict:
         return {"ok": False, "op": "books.find", "error": {"code": "BAD_INPUT", "message": "query is required"}}
 
     sheets = get_sheets_client()
-    return books_handler.books_find(sheets, q)
+    handler = BooksHandler(sheets)
+    return handler.find(q)
 
 
 @mcp.tool()
@@ -97,11 +97,12 @@ async def books_get(book_id: Any = None, book_ids: Any = None) -> dict:
         many = _as_list(book_id) if isinstance(book_id, (list, tuple)) else []
 
     sheets = get_sheets_client()
+    handler = BooksHandler(sheets)
 
     if many:
-        return books_handler.books_get(sheets, book_ids=many)
+        return handler.get_multiple(many)
     if single:
-        return books_handler.books_get(sheets, book_id=single)
+        return handler.get(single)
 
     return {"ok": False, "op": "books.get", "error": {"code": "BAD_INPUT", "message": "book_id or book_ids is required"}}
 
@@ -119,8 +120,8 @@ async def books_filter(where: Any = None, contains: Any = None, limit: int | Non
     { ok:true, data:{ books:[ {id,title,subject,…} ], count, limit } }
     """
     sheets = get_sheets_client()
-    return books_handler.books_filter(
-        sheets,
+    handler = BooksHandler(sheets)
+    return handler.filter(
         where=where if isinstance(where, dict) else None,
         contains=contains if isinstance(contains, dict) else None,
         limit=limit,
@@ -131,7 +132,8 @@ async def books_filter(where: Any = None, contains: Any = None, limit: int | Non
 async def books_list(limit: int | None = None) -> dict:
     """参考書を簡易一覧（id/subject/title のみ）。"""
     sheets = get_sheets_client()
-    return books_handler.books_list(sheets, limit=limit)
+    handler = BooksHandler(sheets)
+    return handler.list(limit=limit)
 
 
 @mcp.tool()
@@ -157,8 +159,8 @@ async def books_create(
     [{"title":"第1章", "range":{"start":1, "end":20}, "numbering":"問"}, ...]
     """
     sheets = get_sheets_client()
-    return books_handler.books_create(
-        sheets,
+    handler = BooksHandler(sheets)
+    return handler.create(
         title=title,
         subject=subject,
         unit_load=int(unit_load) if unit_load is not None else None,
@@ -180,11 +182,12 @@ async def books_update(book_id: Any, updates: Any = None, confirm_token: str | N
         return {"ok": False, "op": "books.update", "error": {"code": "BAD_INPUT", "message": "book_id is required"}}
 
     sheets = get_sheets_client()
+    handler = BooksHandler(sheets)
 
     if confirm_token:
-        return books_handler.books_update(sheets, book_id=bid, confirm_token=confirm_token)
+        return handler.update(bid, confirm_token=confirm_token)
     elif isinstance(updates, dict):
-        return books_handler.books_update(sheets, book_id=bid, updates=updates)
+        return handler.update(bid, updates=updates)
     else:
         return {"ok": False, "op": "books.update", "error": {"code": "BAD_INPUT", "message": "updates is required for preview"}}
 
@@ -197,7 +200,8 @@ async def books_delete(book_id: Any, confirm_token: str | None = None) -> dict:
         return {"ok": False, "op": "books.delete", "error": {"code": "BAD_INPUT", "message": "book_id is required"}}
 
     sheets = get_sheets_client()
-    return books_handler.books_delete(sheets, book_id=bid, confirm_token=confirm_token)
+    handler = BooksHandler(sheets)
+    return handler.delete(bid, confirm_token=confirm_token)
 
 
 # ===== Students Tools =====
@@ -206,12 +210,13 @@ async def books_delete(book_id: Any, confirm_token: str | None = None) -> dict:
 async def students_list(limit: int | None = None, include_all: bool | None = None) -> dict:
     """生徒一覧を取得。既定は「在塾のみ」。include_all=true で全員。"""
     sheets = get_sheets_client()
+    handler = StudentsHandler(sheets)
 
     if include_all:
-        result = students_handler.students_list(sheets, limit=limit)
+        result = handler.list(limit=limit)
     else:
         # Filter by status=在塾
-        result = students_handler.students_filter(sheets, where={"Status": "在塾"}, limit=limit)
+        result = handler.filter(where={"Status": "在塾"}, limit=limit)
 
     if not result.get("ok"):
         return result
@@ -244,13 +249,13 @@ async def students_find(query: Any, limit: int | None = 10, include_all: bool | 
         return {"ok": False, "op": "students.find", "error": {"code": "BAD_INPUT", "message": "query is required"}}
 
     sheets = get_sheets_client()
+    handler = StudentsHandler(sheets)
 
     if include_all:
-        return students_handler.students_find(sheets, query=q, limit=limit)
+        return handler.find(query=q, limit=limit)
     else:
         # Filter by status=在塾 and name contains query
-        return students_handler.students_filter(
-            sheets,
+        return handler.filter(
             where={"Status": "在塾"},
             contains={"名前": q},
             limit=limit,
@@ -266,11 +271,12 @@ async def students_get(student_id: Any = None, student_ids: Any = None) -> dict:
         many = _as_list(student_id)
 
     sheets = get_sheets_client()
+    handler = StudentsHandler(sheets)
 
     if many:
-        return students_handler.students_get(sheets, student_ids=many)
+        return handler.get_multiple(many)
     elif single:
-        return students_handler.students_get(sheets, student_id=single)
+        return handler.get(single)
     else:
         return {"ok": False, "op": "students.get", "error": {"code": "BAD_INPUT", "message": "student_id or student_ids is required"}}
 
@@ -284,13 +290,13 @@ async def students_filter(
 ) -> dict:
     """条件で生徒をフィルタ。既定は「在塾のみ」。"""
     sheets = get_sheets_client()
+    handler = StudentsHandler(sheets)
 
     w = where if isinstance(where, dict) else {}
     if not include_all and "Status" not in w and "status" not in w:
         w = {**w, "Status": "在塾"}
 
-    return students_handler.students_filter(
-        sheets,
+    return handler.filter(
         where=w if w else None,
         contains=contains if isinstance(contains, dict) else None,
         limit=limit,
@@ -301,7 +307,8 @@ async def students_filter(
 async def students_create(record: dict[str, Any] | None = None, id_prefix: str | None = None) -> dict:
     """生徒の新規作成。record にシート見出し→値で渡す。"""
     sheets = get_sheets_client()
-    return students_handler.students_create(sheets, record=record, id_prefix=id_prefix)
+    handler = StudentsHandler(sheets)
+    return handler.create(record=record, id_prefix=id_prefix)
 
 
 @mcp.tool()
@@ -312,11 +319,12 @@ async def students_update(student_id: Any, updates: dict[str, Any] | None = None
         return {"ok": False, "op": "students.update", "error": {"code": "BAD_INPUT", "message": "student_id is required"}}
 
     sheets = get_sheets_client()
+    handler = StudentsHandler(sheets)
 
     if confirm_token:
-        return students_handler.students_update(sheets, student_id=sid, confirm_token=confirm_token)
+        return handler.update(sid, confirm_token=confirm_token)
     elif isinstance(updates, dict):
-        return students_handler.students_update(sheets, student_id=sid, updates=updates)
+        return handler.update(sid, updates=updates)
     else:
         return {"ok": False, "op": "students.update", "error": {"code": "BAD_INPUT", "message": "updates is required for preview"}}
 
@@ -329,7 +337,8 @@ async def students_delete(student_id: Any, confirm_token: str | None = None) -> 
         return {"ok": False, "op": "students.delete", "error": {"code": "BAD_INPUT", "message": "student_id is required"}}
 
     sheets = get_sheets_client()
-    return students_handler.students_delete(sheets, student_id=sid, confirm_token=confirm_token)
+    handler = StudentsHandler(sheets)
+    return handler.delete(sid, confirm_token=confirm_token)
 
 
 # ===== Planner (Weekly) Tools =====
@@ -344,7 +353,8 @@ async def planner_ids_list(student_id: Any = None, spreadsheet_id: Any = None) -
         return {"ok": False, "op": "planner.ids_list", "error": {"code": "BAD_INPUT", "message": "student_id or spreadsheet_id is required"}}
 
     sheets = get_sheets_client()
-    return planner_handler.planner_ids_list(sheets, student_id=sid, spreadsheet_id=spid)
+    handler = PlannerHandler(sheets)
+    return handler.ids_list(student_id=sid, spreadsheet_id=spid)
 
 
 @mcp.tool()
@@ -354,7 +364,8 @@ async def planner_dates_get(student_id: Any = None, spreadsheet_id: Any = None) 
     spid = _coerce_str(spreadsheet_id, ("spreadsheet_id", "sheet_id", "id"))
 
     sheets = get_sheets_client()
-    return planner_handler.planner_dates_get(sheets, student_id=sid, spreadsheet_id=spid)
+    handler = PlannerHandler(sheets)
+    return handler.dates_get(student_id=sid, spreadsheet_id=spid)
 
 
 @mcp.tool()
@@ -367,7 +378,8 @@ async def planner_dates_set(start_date: str, student_id: Any = None, spreadsheet
     spid = _coerce_str(spreadsheet_id, ("spreadsheet_id", "sheet_id", "id"))
 
     sheets = get_sheets_client()
-    return planner_handler.planner_dates_set(sheets, start_date=start_date, student_id=sid, spreadsheet_id=spid)
+    handler = PlannerHandler(sheets)
+    return handler.dates_set(start_date=start_date, student_id=sid, spreadsheet_id=spid)
 
 
 @mcp.tool()
@@ -377,7 +389,8 @@ async def planner_metrics_get(student_id: Any = None, spreadsheet_id: Any = None
     spid = _coerce_str(spreadsheet_id, ("spreadsheet_id", "sheet_id", "id"))
 
     sheets = get_sheets_client()
-    return planner_handler.planner_metrics_get(sheets, student_id=sid, spreadsheet_id=spid)
+    handler = PlannerHandler(sheets)
+    return handler.metrics_get(student_id=sid, spreadsheet_id=spid)
 
 
 @mcp.tool()
@@ -387,14 +400,15 @@ async def planner_plan_get(student_id: Any = None, spreadsheet_id: Any = None) -
     spid = _coerce_str(spreadsheet_id, ("spreadsheet_id", "sheet_id", "id"))
 
     sheets = get_sheets_client()
+    handler = PlannerHandler(sheets)
 
     # Get plans
-    plans = planner_handler.planner_plan_get(sheets, student_id=sid, spreadsheet_id=spid)
+    plans = handler.plan_get(student_id=sid, spreadsheet_id=spid)
     if not plans.get("ok"):
         return plans
 
     # Get metrics and merge
-    metrics = planner_handler.planner_metrics_get(sheets, student_id=sid, spreadsheet_id=spid)
+    metrics = handler.metrics_get(student_id=sid, spreadsheet_id=spid)
     if not metrics.get("ok"):
         return plans  # Return plans without metrics
 
@@ -435,8 +449,8 @@ async def planner_plan_set(
     spid = _coerce_str(spreadsheet_id, ("spreadsheet_id", "sheet_id", "id"))
 
     sheets = get_sheets_client()
-    return planner_handler.planner_plan_set(
-        sheets,
+    handler = PlannerHandler(sheets)
+    return handler.plan_set(
         week_index=week_index,
         plan_text=plan_text,
         row=row,
@@ -471,9 +485,10 @@ async def planner_plan_create(
     spid = _coerce_str(spreadsheet_id, ("spreadsheet_id", "sheet_id", "id"))
 
     sheets = get_sheets_client()
+    handler = PlannerHandler(sheets)
 
     # Get week count for validation
-    dates = planner_handler.planner_dates_get(sheets, student_id=sid, spreadsheet_id=spid)
+    dates = handler.dates_get(student_id=sid, spreadsheet_id=spid)
     week_count = 5
     if dates.get("ok"):
         ws = dates.get("data", {}).get("week_starts", [])
@@ -507,8 +522,7 @@ async def planner_plan_create(
         prepared_items.append(out_it)
 
     # Execute
-    result = planner_handler.planner_plan_set(
-        sheets,
+    result = handler.plan_set(
         items=prepared_items,
         student_id=sid,
         spreadsheet_id=spid,
@@ -546,8 +560,8 @@ async def planner_monthly_filter(
     spid = _coerce_str(spreadsheet_id, ("spreadsheet_id", "sheet_id", "id"))
 
     sheets = get_sheets_client()
-    return planner_monthly_handler.planner_monthly_filter(
-        sheets,
+    handler = PlannerHandler(sheets)
+    return handler.monthly_filter(
         year=int(year),
         month=int(month),
         student_id=sid,
