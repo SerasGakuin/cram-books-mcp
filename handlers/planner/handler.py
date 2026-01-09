@@ -559,60 +559,156 @@ class PlannerHandler:
 
     def monthly_filter(
         self,
-        year: int,
-        month: int,
+        year: int | None = None,
+        month: int | None = None,
+        year_months: list[dict] | None = None,
         student_id: str | None = None,
         spreadsheet_id: str | None = None,
     ) -> dict[str, Any]:
         """
         Filter monthly planner data by year and month.
 
+        Supports two modes:
+        - Single month: specify year and month
+        - Multiple months: specify year_months list
+
         Args:
-            year: Year (2-digit or 4-digit)
-            month: Month (1-12)
+            year: Year (2-digit or 4-digit) - for single month mode
+            month: Month (1-12) - for single month mode
+            year_months: List of {"year": int, "month": int} - for batch mode
             student_id: Student ID for resolving spreadsheet
             spreadsheet_id: Direct spreadsheet ID
 
         Returns:
-            Items matching the specified year/month
+            Items matching the specified year/month(s)
         """
+        op = "planner.monthly.filter"
+
+        # year_months takes precedence if provided
+        if year_months is not None:
+            return self._monthly_filter_multiple(year_months, student_id, spreadsheet_id)
+
+        # Single month mode (backward compatible)
+        return self._monthly_filter_single(year, month, student_id, spreadsheet_id)
+
+    def _monthly_filter_single(
+        self,
+        year: int | None,
+        month: int | None,
+        student_id: str | None,
+        spreadsheet_id: str | None,
+    ) -> dict[str, Any]:
+        """Single month filter (existing logic)."""
+        op = "planner.monthly.filter"
+
         yy = _norm_year_2digit(year)
         try:
-            mm = int(str(month).strip())
-            if mm < 1 or mm > 12:
+            mm = int(str(month).strip()) if month is not None else None
+            if mm is not None and (mm < 1 or mm > 12):
                 mm = None
         except (ValueError, TypeError):
             mm = None
 
         if yy is None or mm is None:
-            return ng("planner.monthly.filter", "BAD_REQUEST", "year(2桁/4桁) と month(1..12) を指定してください")
+            return ng(op, "BAD_REQUEST", "year(2桁/4桁) と month(1..12) を指定してください")
 
         # Resolve spreadsheet
         resolved_id = self._resolve_spreadsheet_id(student_id, spreadsheet_id)
         if not resolved_id:
-            return ng("planner.monthly.filter", "NOT_FOUND", "monthly sheet not found (月間管理)")
+            return ng(op, "NOT_FOUND", "monthly sheet not found (月間管理)")
 
         try:
             ss = self.sheets.open_by_id(resolved_id)
             ws = ss.worksheet(MONTHLY_SHEET_NAME)
         except Exception as e:
-            return ng("planner.monthly.filter", "NOT_FOUND", f"monthly sheet not found: {e}")
+            return ng(op, "NOT_FOUND", f"monthly sheet not found: {e}")
 
         try:
             all_values = ws.get_all_values()
             if len(all_values) <= 1:
-                return ok("planner.monthly.filter", {"year": yy, "month": mm, "items": [], "count": 0})
+                return ok(op, {"year": yy, "month": mm, "items": [], "count": 0})
 
             items = self._parse_monthly_rows(all_values[1:], yy, mm)
 
-            return ok("planner.monthly.filter", {
+            return ok(op, {
                 "year": yy,
                 "month": mm,
                 "items": items,
                 "count": len(items),
             })
         except Exception as e:
-            return ng("planner.monthly.filter", "ERROR", str(e))
+            return ng(op, "ERROR", str(e))
+
+    def _monthly_filter_multiple(
+        self,
+        year_months: list[dict],
+        student_id: str | None,
+        spreadsheet_id: str | None,
+    ) -> dict[str, Any]:
+        """Multiple months filter (batch mode)."""
+        op = "planner.monthly.filter"
+
+        # Validate year_months
+        if not year_months:
+            return ng(op, "BAD_REQUEST", "year_months must not be empty")
+
+        # Normalize and validate each entry
+        normalized_ym: list[tuple[int, int]] = []
+        for entry in year_months:
+            y = entry.get("year")
+            m = entry.get("month")
+            yy = _norm_year_2digit(y)
+            try:
+                mm = int(m) if m is not None else None
+                if mm is not None and (mm < 1 or mm > 12):
+                    mm = None
+            except (ValueError, TypeError):
+                mm = None
+
+            if yy is None or mm is None:
+                return ng(op, "BAD_REQUEST", f"Invalid year_month entry: {entry}")
+            normalized_ym.append((yy, mm))
+
+        # Resolve spreadsheet (once)
+        resolved_id = self._resolve_spreadsheet_id(student_id, spreadsheet_id)
+        if not resolved_id:
+            return ng(op, "NOT_FOUND", "monthly sheet not found (月間管理)")
+
+        try:
+            ss = self.sheets.open_by_id(resolved_id)
+            ws = ss.worksheet(MONTHLY_SHEET_NAME)
+        except Exception as e:
+            return ng(op, "NOT_FOUND", f"monthly sheet not found: {e}")
+
+        try:
+            all_values = ws.get_all_values()
+            if len(all_values) <= 1:
+                return ok(op, {
+                    "year_months": [{"year": yy, "month": mm} for yy, mm in normalized_ym],
+                    "items": [],
+                    "count": 0,
+                    "by_month": {},
+                })
+
+            # Filter for all requested year-months
+            all_items: list[dict] = []
+            by_month: dict[str, list[dict]] = {}
+
+            for yy, mm in normalized_ym:
+                items = self._parse_monthly_rows(all_values[1:], yy, mm)
+                all_items.extend(items)
+                # Key format: "YY-MM" (e.g., "25-06")
+                key = f"{yy:02d}-{mm:02d}"
+                by_month[key] = items
+
+            return ok(op, {
+                "year_months": [{"year": yy, "month": mm} for yy, mm in normalized_ym],
+                "items": all_items,
+                "count": len(all_items),
+                "by_month": by_month,
+            })
+        except Exception as e:
+            return ng(op, "ERROR", str(e))
 
     def _parse_monthly_rows(self, rows: list[list], target_year: int, target_month: int) -> list[dict]:
         """Parse monthly planner rows and filter by year/month."""

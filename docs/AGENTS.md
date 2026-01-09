@@ -159,7 +159,43 @@ git push origin main
 
 | ツール | 説明 | 主要引数 |
 |--------|------|---------|
-| `planner_monthly_filter` | 指定年月の実績取得 | `year`, `month`, `student_id?` |
+| `planner_monthly_filter` | 指定年月の実績取得 | `year`, `month` または `year_months[]` |
+
+#### planner_monthly_filter の使い方
+
+**単一月モード**（既存互換）:
+```python
+planner_monthly_filter(year=2025, month=6, student_id="s001")
+```
+
+**複数月モード**（新機能）:
+```python
+planner_monthly_filter(
+    year_months=[
+        {"year": 2025, "month": 6},
+        {"year": 2025, "month": 7},
+        {"year": 2025, "month": 8},
+    ],
+    student_id="s001"
+)
+```
+
+複数月モードのレスポンス:
+```json
+{
+  "ok": true,
+  "data": {
+    "year_months": [{"year": 25, "month": 6}, ...],
+    "items": [...],
+    "count": 15,
+    "by_month": {
+      "25-06": [...],
+      "25-07": [...],
+      "25-08": [...]
+    }
+  }
+}
+```
 
 ### Monthplan（今月プラン）
 

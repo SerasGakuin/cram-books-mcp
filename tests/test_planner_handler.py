@@ -382,6 +382,196 @@ class TestPlannerHandlerBookCodeParsing:
         assert result["book_id"] == "gMA001"
 
 
+class TestPlannerHandlerMonthlyFilterMultiple:
+    """Tests for multiple year-months batch retrieval."""
+
+    def _make_mock_sheets_with_data(self, data: list[list]):
+        """Helper to create mock sheets with monthly data."""
+        mock_sheets = MagicMock()
+        mock_ss = MagicMock()
+        mock_ws = MagicMock()
+        mock_sheets.open_by_id.return_value = mock_ss
+        mock_ss.worksheet.return_value = mock_ws
+        mock_ws.get_all_values.return_value = data
+        return mock_sheets
+
+    def test_multiple_year_months_returns_combined_items(self):
+        """Should return combined items from multiple months."""
+        from handlers.planner import PlannerHandler
+
+        mock_sheets = self._make_mock_sheets_with_data([
+            ["ID", "年", "月", "D", "E", "F", "書籍ID", "教科", "タイトル", "備考", "負荷", "月時間", "目安量", "W1", "W2", "W3", "W4", "W5"],
+            ["code1", "25", "6", "", "", "", "gMA001", "数学", "青チャート", "note", "5", "60", "10", "A", "B", "C", "D", "E"],
+            ["code2", "25", "7", "", "", "", "gEN001", "英語", "長文", "note", "3", "30", "5", "X", "Y", "Z", "", ""],
+            ["code3", "25", "8", "", "", "", "gPH001", "物理", "力学", "note", "4", "45", "8", "1", "2", "3", "4", "5"],
+        ])
+
+        handler = PlannerHandler(mock_sheets)
+        result = handler.monthly_filter(
+            year_months=[
+                {"year": 2025, "month": 6},
+                {"year": 2025, "month": 7},
+            ],
+            spreadsheet_id="test-id"
+        )
+
+        assert result["ok"] is True
+        assert result["data"]["count"] == 2
+        # Items from both months
+        book_ids = [item["book_id"] for item in result["data"]["items"]]
+        assert "gMA001" in book_ids
+        assert "gEN001" in book_ids
+        assert "gPH001" not in book_ids  # Month 8 not requested
+
+    def test_multiple_year_months_includes_by_month(self):
+        """Should include by_month dict for easy access."""
+        from handlers.planner import PlannerHandler
+
+        mock_sheets = self._make_mock_sheets_with_data([
+            ["ID", "年", "月", "D", "E", "F", "書籍ID", "教科", "タイトル", "備考", "負荷", "月時間", "目安量", "W1", "W2", "W3", "W4", "W5"],
+            ["code1", "25", "6", "", "", "", "gMA001", "数学", "青チャート", "", "", "", "", "", "", "", "", ""],
+            ["code2", "25", "7", "", "", "", "gEN001", "英語", "長文", "", "", "", "", "", "", "", "", ""],
+        ])
+
+        handler = PlannerHandler(mock_sheets)
+        result = handler.monthly_filter(
+            year_months=[
+                {"year": 2025, "month": 6},
+                {"year": 2025, "month": 7},
+            ],
+            spreadsheet_id="test-id"
+        )
+
+        assert result["ok"] is True
+        assert "by_month" in result["data"]
+        assert "25-06" in result["data"]["by_month"]
+        assert "25-07" in result["data"]["by_month"]
+        assert len(result["data"]["by_month"]["25-06"]) == 1
+        assert len(result["data"]["by_month"]["25-07"]) == 1
+
+    def test_multiple_year_months_includes_year_months_in_response(self):
+        """Should include requested year_months in response."""
+        from handlers.planner import PlannerHandler
+
+        mock_sheets = self._make_mock_sheets_with_data([
+            ["ID", "年", "月"],
+            ["code1", "25", "6"],
+        ])
+
+        handler = PlannerHandler(mock_sheets)
+        result = handler.monthly_filter(
+            year_months=[
+                {"year": 2025, "month": 6},
+                {"year": 2025, "month": 7},
+            ],
+            spreadsheet_id="test-id"
+        )
+
+        assert result["ok"] is True
+        assert "year_months" in result["data"]
+        assert len(result["data"]["year_months"]) == 2
+        assert {"year": 25, "month": 6} in result["data"]["year_months"]
+        assert {"year": 25, "month": 7} in result["data"]["year_months"]
+
+    def test_empty_year_months_returns_error(self):
+        """Should return error when year_months is empty list."""
+        from handlers.planner import PlannerHandler
+
+        mock_sheets = MagicMock()
+        handler = PlannerHandler(mock_sheets)
+
+        result = handler.monthly_filter(
+            year_months=[],
+            spreadsheet_id="test-id"
+        )
+
+        assert result["ok"] is False
+        assert result["error"]["code"] == "BAD_REQUEST"
+
+    def test_invalid_year_month_in_list_returns_error(self):
+        """Should return error when year_months contains invalid entry."""
+        from handlers.planner import PlannerHandler
+
+        mock_sheets = MagicMock()
+        handler = PlannerHandler(mock_sheets)
+
+        result = handler.monthly_filter(
+            year_months=[
+                {"year": 2025, "month": 13},  # Invalid month
+            ],
+            spreadsheet_id="test-id"
+        )
+
+        assert result["ok"] is False
+        assert result["error"]["code"] == "BAD_REQUEST"
+
+    def test_backward_compatible_single_month(self):
+        """Should maintain backward compatibility with year/month params."""
+        from handlers.planner import PlannerHandler
+
+        mock_sheets = self._make_mock_sheets_with_data([
+            ["ID", "年", "月", "D", "E", "F", "書籍ID", "教科", "タイトル", "備考", "負荷", "月時間", "目安量", "W1", "W2", "W3", "W4", "W5"],
+            ["code1", "25", "6", "", "", "", "gMA001", "数学", "青チャート", "", "", "", "", "", "", "", "", ""],
+        ])
+
+        handler = PlannerHandler(mock_sheets)
+        # Use old-style parameters
+        result = handler.monthly_filter(year=2025, month=6, spreadsheet_id="test-id")
+
+        assert result["ok"] is True
+        assert result["data"]["year"] == 25
+        assert result["data"]["month"] == 6
+        assert result["data"]["count"] == 1
+
+    def test_year_months_takes_precedence_over_year_month(self):
+        """When both year_months and year/month provided, year_months wins."""
+        from handlers.planner import PlannerHandler
+
+        mock_sheets = self._make_mock_sheets_with_data([
+            ["ID", "年", "月", "D", "E", "F", "書籍ID", "教科", "タイトル", "備考", "負荷", "月時間", "目安量", "W1", "W2", "W3", "W4", "W5"],
+            ["code1", "25", "6", "", "", "", "gMA001", "数学", "青チャート", "", "", "", "", "", "", "", "", ""],
+            ["code2", "25", "7", "", "", "", "gEN001", "英語", "長文", "", "", "", "", "", "", "", "", ""],
+        ])
+
+        handler = PlannerHandler(mock_sheets)
+        result = handler.monthly_filter(
+            year=2025,
+            month=6,
+            year_months=[{"year": 2025, "month": 7}],  # Should use this
+            spreadsheet_id="test-id"
+        )
+
+        assert result["ok"] is True
+        # Should have year_months in response (multi-month mode)
+        assert "year_months" in result["data"]
+        assert result["data"]["count"] == 1
+        assert result["data"]["items"][0]["book_id"] == "gEN001"  # Month 7
+
+    def test_cross_year_retrieval(self):
+        """Should handle retrieval across different years."""
+        from handlers.planner import PlannerHandler
+
+        mock_sheets = self._make_mock_sheets_with_data([
+            ["ID", "年", "月", "D", "E", "F", "書籍ID", "教科", "タイトル", "備考", "負荷", "月時間", "目安量", "W1", "W2", "W3", "W4", "W5"],
+            ["code1", "24", "12", "", "", "", "gMA001", "数学", "青チャート", "", "", "", "", "", "", "", "", ""],
+            ["code2", "25", "1", "", "", "", "gEN001", "英語", "長文", "", "", "", "", "", "", "", "", ""],
+        ])
+
+        handler = PlannerHandler(mock_sheets)
+        result = handler.monthly_filter(
+            year_months=[
+                {"year": 2024, "month": 12},
+                {"year": 2025, "month": 1},
+            ],
+            spreadsheet_id="test-id"
+        )
+
+        assert result["ok"] is True
+        assert result["data"]["count"] == 2
+        assert "24-12" in result["data"]["by_month"]
+        assert "25-01" in result["data"]["by_month"]
+
+
 class TestPlannerHandlerMonthplanGet:
     """Tests for monthplan_get method."""
 

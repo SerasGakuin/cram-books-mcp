@@ -55,14 +55,49 @@
 
 ## API
 
-MCP tool: `planner_monthly_filter(year, month, student_id?, spreadsheet_id?)`
+MCP tool: `planner_monthly_filter`
+
+### 単一月モード（既存互換）
+
+```python
+planner_monthly_filter(year, month, student_id?, spreadsheet_id?)
+```
 - 入力: year(2桁/4桁), month(1..12), student_id または spreadsheet_id
 - 年は2桁(25)でも4桁(2025)でも可（内部で正規化）
+
+### 複数月モード（新機能）
+
+```python
+planner_monthly_filter(year_months, student_id?, spreadsheet_id?)
+```
+- 入力: year_months=[{"year": 2025, "month": 6}, {"year": 2025, "month": 7}, ...]
+- 1回のAPIコールで複数月分のデータを取得可能
+
+#### 複数月モードのレスポンス
+
+```json
+{
+  "ok": true,
+  "data": {
+    "year_months": [{"year": 25, "month": 6}, {"year": 25, "month": 7}],
+    "items": [...],
+    "count": 10,
+    "by_month": {
+      "25-06": [...],
+      "25-07": [...]
+    }
+  }
+}
+```
+
+- `items`: 全月分のアイテムを統合したリスト
+- `by_month`: 月別にアクセスするための辞書（キー: "YY-MM" 形式）
 
 ## テスト
 
 ```bash
-cd apps/mcp
 uv run pytest tests/test_planner_tools.py::TestPlannerMonthlyFilter -v
+uv run pytest tests/test_planner_tools.py::TestPlannerMonthlyFilterMultiple -v
+uv run pytest tests/test_planner_handler.py::TestPlannerHandlerMonthlyFilterMultiple -v
 ```
 

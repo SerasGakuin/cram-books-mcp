@@ -227,6 +227,79 @@ class TestPlannerMonthlyFilter:
             assert result.get("ok") is True
 
 
+class TestPlannerMonthlyFilterMultiple:
+    """Tests for planner_monthly_filter with year_months parameter"""
+
+    @pytest.mark.asyncio
+    async def test_multiple_year_months(self, mock_sheets_client):
+        """Should pass year_months to handler"""
+        response = {
+            "ok": True,
+            "op": "planner.monthly.filter",
+            "data": {
+                "year_months": [{"year": 25, "month": 6}, {"year": 25, "month": 7}],
+                "items": [{"book_id": "gMA001"}, {"book_id": "gEN001"}],
+                "count": 2,
+                "by_month": {
+                    "25-06": [{"book_id": "gMA001"}],
+                    "25-07": [{"book_id": "gEN001"}],
+                }
+            }
+        }
+        mock_handler = MagicMock()
+        mock_handler.monthly_filter.return_value = response
+        with patch("server.get_sheets_client", return_value=mock_sheets_client), \
+             patch("server.PlannerHandler", return_value=mock_handler):
+            result = await planner_monthly_filter(
+                year_months=[
+                    {"year": 2025, "month": 6},
+                    {"year": 2025, "month": 7},
+                ],
+                spreadsheet_id="test-sheet-id"
+            )
+            assert result.get("ok") is True
+            assert "year_months" in result.get("data", {})
+            assert "by_month" in result.get("data", {})
+
+    @pytest.mark.asyncio
+    async def test_year_months_passed_to_handler(self, mock_sheets_client):
+        """Should correctly pass year_months parameter to handler"""
+        mock_handler = MagicMock()
+        mock_handler.monthly_filter.return_value = {"ok": True, "data": {}}
+        with patch("server.get_sheets_client", return_value=mock_sheets_client), \
+             patch("server.PlannerHandler", return_value=mock_handler):
+            await planner_monthly_filter(
+                year_months=[{"year": 2025, "month": 8}],
+                spreadsheet_id="test-id"
+            )
+            # Verify handler was called with year_months
+            mock_handler.monthly_filter.assert_called_once()
+            call_kwargs = mock_handler.monthly_filter.call_args.kwargs
+            assert "year_months" in call_kwargs
+            assert call_kwargs["year_months"] == [{"year": 2025, "month": 8}]
+
+    @pytest.mark.asyncio
+    async def test_backward_compatible_single_month(self, mock_sheets_client):
+        """Should still work with year/month params"""
+        response = {
+            "ok": True,
+            "op": "planner.monthly.filter",
+            "data": {"year": 25, "month": 8, "items": [], "count": 0}
+        }
+        mock_handler = MagicMock()
+        mock_handler.monthly_filter.return_value = response
+        with patch("server.get_sheets_client", return_value=mock_sheets_client), \
+             patch("server.PlannerHandler", return_value=mock_handler):
+            result = await planner_monthly_filter(
+                year=2025,
+                month=8,
+                spreadsheet_id="test-sheet-id"
+            )
+            assert result.get("ok") is True
+            # Should have single month response format
+            assert result.get("data", {}).get("year") == 25
+
+
 class TestPlannerGuidance:
     """Tests for planner_guidance tool"""
 

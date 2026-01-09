@@ -543,19 +543,36 @@ async def planner_plan_create(
 
 @mcp.tool()
 async def planner_monthly_filter(
-    year: int | str,
-    month: int | str,
+    year: int | str | None = None,
+    month: int | str | None = None,
+    year_months: list[dict[str, int]] | None = None,
     student_id: Any = None,
     spreadsheet_id: Any = None,
 ) -> dict:
-    """月間管理から指定年月の実績を取得。"""
+    """月間管理から指定年月の実績を取得。
+
+    単一月モード: year と month を指定
+    複数月モード: year_months に [{"year": 2025, "month": 6}, ...] を指定
+
+    複数月モードでは by_month で月別にアクセス可能。
+    """
     sid, spid = resolve_planner_context(student_id, spreadsheet_id)
 
     sheets = get_sheets_client()
     handler = PlannerHandler(sheets)
+
+    # year_months が指定されていれば複数月モード
+    if year_months is not None:
+        return handler.monthly_filter(
+            year_months=year_months,
+            student_id=sid,
+            spreadsheet_id=spid,
+        )
+
+    # 単一月モード（後方互換）
     return handler.monthly_filter(
-        year=int(year),
-        month=int(month),
+        year=int(year) if year is not None else None,
+        month=int(month) if month is not None else None,
         student_id=sid,
         spreadsheet_id=spid,
     )

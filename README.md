@@ -142,7 +142,7 @@ git push origin main
 
 | Component | Tests | Coverage |
 |-----------|-------|----------|
-| MCP全体（handlers + tools + lib） | 280 | ~85% |
+| MCP全体（handlers + tools + lib） | 291 | ~85% |
 
 ```bash
 # テスト実行
@@ -178,8 +178,9 @@ uv run pytest tests/  # または --cov=.
   - plan_get は metrics 同梱、plan_propose は items[] 一括対応、plan_confirm は単体/一括を自動判別
 
 ### 3.4 Planner（月間管理）
-- planner_monthly_filter(year, month, student_id?|spreadsheet_id?)
-  - B=年(下2桁)/C=月(1..12) で実績を抽出
+- planner_monthly_filter(year, month または year_months[], student_id?|spreadsheet_id?)
+  - 単一月: year/month を指定
+  - 複数月: year_months=[{year: 2025, month: 6}, ...] で一括取得（by_monthで月別アクセス可）
 
 ---
 
