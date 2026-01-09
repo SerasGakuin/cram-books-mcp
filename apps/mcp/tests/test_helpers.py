@@ -1,35 +1,20 @@
 """
-Tests for helper functions in server.py
-Pure functions that can be tested without mocking HTTP calls
+Tests for helper functions in lib modules.
+Pure functions that can be tested without mocking Google Sheets.
 """
 import os
-import time
-import hmac
-import hashlib
 import pytest
-from unittest.mock import patch
 
-# Import helpers from server module
+# Import helpers from lib modules
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from server import (
-    _strip_quotes,
-    _coerce_str,
-    _norm_header,
-    _pick_col,
-    _preview_put,
-    _preview_get,
-    _preview_pop,
-    _normalize_key_for_sheet,
-    _parse_where_like,
-    _week_count_from_dates,
-    _index_by_row,
-    _PREVIEW_CACHE,
-    _hmac_required,
-    _hmac_secret,
-    _verify_hmac,
-)
+from lib.common import normalize, to_number_or_none, ok, ng
+from lib.sheet_utils import norm_header, pick_col, tokenize, parse_monthly_goal, col_letter_to_index
+from lib.id_rules import decide_prefix, next_id_for_prefix, extract_ids_from_values
+
+# Also test server-level helpers
+from server import _strip_quotes, _coerce_str, _as_list
 
 
 class TestStripQuotes:
@@ -92,285 +77,306 @@ class TestCoerceStr:
         assert _coerce_str(["a", "b"]) is None
 
 
-class TestNormHeader:
-    """Tests for _norm_header function"""
+class TestAsList:
+    """Tests for _as_list function"""
+
+    def test_none_returns_empty(self):
+        assert _as_list(None) == []
+
+    def test_string_returns_list(self):
+        assert _as_list("item") == ["item"]
+
+    def test_list_passthrough(self):
+        assert _as_list(["a", "b"]) == ["a", "b"]
+
+    def test_tuple_converts(self):
+        assert _as_list(("a", "b")) == ["a", "b"]
+
+    def test_strips_quotes(self):
+        assert _as_list(['"a"', "'b'"]) == ["a", "b"]
+
+    def test_dict_list_extracts_id(self):
+        assert _as_list([{"id": "123"}, {"id": "456"}]) == ["123", "456"]
+
+    def test_custom_id_key(self):
+        assert _as_list([{"book_id": "b1"}, {"book_id": "b2"}], id_key="book_id") == ["b1", "b2"]
+
+
+class TestNormalize:
+    """Tests for normalize function (common.py)"""
 
     def test_lowercase(self):
-        assert _norm_header("HELLO") == "hello"
+        assert normalize("HELLO") == "hello"
 
     def test_strips_whitespace(self):
-        assert _norm_header("  hello  ") == "hello"
+        assert normalize("  hello  ") == "hello"
 
-    def test_removes_regular_spaces(self):
-        assert _norm_header("hello world") == "helloworld"
+    def test_preserves_internal_spaces(self):
+        # normalize() does NFKC + lower + strip, but preserves internal spaces
+        assert normalize("hello world") == "hello world"
 
-    def test_removes_fullwidth_spaces(self):
-        assert _norm_header("hello\u3000world") == "helloworld"
-
-    def test_mixed_input(self):
-        assert _norm_header("  Hello\u3000World  ") == "helloworld"
+    def test_nfkc_normalizes_fullwidth(self):
+        # NFKC converts fullwidth to ASCII
+        assert normalize("ＡＢＣ") == "abc"
 
     def test_empty_string(self):
-        assert _norm_header("") == ""
+        assert normalize("") == ""
+
+
+class TestNormHeader:
+    """Tests for norm_header function"""
+
+    def test_lowercase(self):
+        assert norm_header("HELLO") == "hello"
+
+    def test_strips_whitespace(self):
+        assert norm_header("  hello  ") == "hello"
+
+    def test_removes_regular_spaces(self):
+        assert norm_header("hello world") == "helloworld"
+
+    def test_removes_fullwidth_spaces(self):
+        assert norm_header("hello\u3000world") == "helloworld"
+
+    def test_mixed_input(self):
+        assert norm_header("  Hello\u3000World  ") == "helloworld"
+
+    def test_empty_string(self):
+        assert norm_header("") == ""
 
 
 class TestPickCol:
-    """Tests for _pick_col function"""
+    """Tests for pick_col function"""
 
     def test_finds_exact_match(self):
         headers = ["id", "name", "subject"]
-        assert _pick_col(headers, ["name"]) == 1
+        assert pick_col(headers, ["name"]) == 1
 
     def test_finds_first_candidate(self):
         headers = ["id", "name", "subject"]
-        assert _pick_col(headers, ["missing", "subject"]) == 2
+        assert pick_col(headers, ["missing", "subject"]) == 2
 
     def test_case_insensitive(self):
         headers = ["ID", "NAME", "SUBJECT"]
-        assert _pick_col(headers, ["name"]) == 1
+        assert pick_col(headers, ["name"]) == 1
 
     def test_ignores_spaces(self):
         headers = ["book id", "book name"]
-        assert _pick_col(headers, ["bookid"]) == 0
+        assert pick_col(headers, ["bookid"]) == 0
 
     def test_returns_negative_one_when_not_found(self):
         headers = ["id", "name"]
-        assert _pick_col(headers, ["missing"]) == -1
+        assert pick_col(headers, ["missing"]) == -1
 
     def test_empty_headers(self):
-        assert _pick_col([], ["name"]) == -1
+        assert pick_col([], ["name"]) == -1
 
     def test_empty_candidates(self):
-        assert _pick_col(["id", "name"], []) == -1
+        assert pick_col(["id", "name"], []) == -1
 
 
-class TestPreviewCache:
-    """Tests for preview cache functions"""
+class TestTokenize:
+    """Tests for tokenize function"""
 
-    def setup_method(self):
-        _PREVIEW_CACHE.clear()
+    def test_splits_on_spaces(self):
+        assert tokenize("hello world") == ["hello", "world"]
 
-    def teardown_method(self):
-        _PREVIEW_CACHE.clear()
+    def test_preserves_duplicates(self):
+        # tokenize() doesn't remove duplicates
+        assert tokenize("hello hello") == ["hello", "hello"]
 
-    def test_put_returns_token(self):
-        token = _preview_put({"data": "test"})
-        assert isinstance(token, str)
-        assert len(token) > 0
+    def test_filters_empty(self):
+        assert tokenize("hello   world") == ["hello", "world"]
 
-    def test_get_returns_payload(self):
-        payload = {"data": "test"}
-        token = _preview_put(payload)
-        assert _preview_get(token) == payload
+    def test_normalizes_case(self):
+        assert tokenize("HELLO World") == ["hello", "world"]
 
-    def test_get_missing_returns_none(self):
-        assert _preview_get("nonexistent") is None
-
-    def test_pop_returns_and_removes(self):
-        payload = {"data": "test"}
-        token = _preview_put(payload)
-        assert _preview_pop(token) == payload
-        assert _preview_get(token) is None
-
-    def test_pop_missing_returns_none(self):
-        assert _preview_pop("nonexistent") is None
-
-    def test_multiple_entries(self):
-        token1 = _preview_put({"id": 1})
-        token2 = _preview_put({"id": 2})
-        assert _preview_get(token1)["id"] == 1
-        assert _preview_get(token2)["id"] == 2
+    def test_filters_short_tokens(self):
+        # Tokens shorter than 2 characters are filtered out
+        assert tokenize("a bc def") == ["bc", "def"]
 
 
-class TestNormalizeKeyForSheet:
-    """Tests for _normalize_key_for_sheet function"""
+class TestParseMonthlyGoal:
+    """Tests for parse_monthly_goal function"""
 
-    def test_id_mappings(self):
-        assert _normalize_key_for_sheet("id") == "参考書ID"
-        assert _normalize_key_for_sheet("参考書id") == "参考書ID"
-        assert _normalize_key_for_sheet("参考書ｉｄ") == "参考書ID"
-
-    def test_title_mappings(self):
-        assert _normalize_key_for_sheet("title") == "参考書名"
-        assert _normalize_key_for_sheet("参考書名") == "参考書名"
-        assert _normalize_key_for_sheet("書名") == "参考書名"
-
-    def test_subject_mapping(self):
-        assert _normalize_key_for_sheet("subject") == "教科"
-        assert _normalize_key_for_sheet("教科") == "教科"
-
-    def test_passthrough_unmapped(self):
-        assert _normalize_key_for_sheet("unknown_key") == "unknown_key"
-
-    def test_case_insensitive(self):
-        assert _normalize_key_for_sheet("ID") == "参考書ID"
-        assert _normalize_key_for_sheet("Title") == "参考書名"
-
-
-class TestParseWhereLike:
-    """Tests for _parse_where_like function"""
-
-    def test_dict_input_passthrough(self):
-        result = _parse_where_like({"教科": "数学"})
+    def test_hours_per_day(self):
+        result = parse_monthly_goal("1時間/日")
         assert result is not None
-        assert result.get("教科") == "数学"
+        assert result.get("per_day_minutes") == 60
 
-    def test_normalizes_keys(self):
-        result = _parse_where_like({"subject": "数学"})
+    def test_decimal_hours(self):
+        result = parse_monthly_goal("1.5時間/日")
         assert result is not None
-        assert "教科" in result
+        assert result.get("per_day_minutes") == 90
 
-    def test_string_with_equals(self):
-        result = _parse_where_like('subject = "数学"')
+    def test_plain_hours(self):
+        result = parse_monthly_goal("2時間")
         assert result is not None
-        assert result.get("教科") == "数学"
+        assert result.get("per_day_minutes") == 120
 
-    def test_string_with_colon(self):
-        result = _parse_where_like("title: 青チャート")
+    def test_no_hours_returns_none_minutes(self):
+        # If no 時間 pattern, per_day_minutes is None
+        result = parse_monthly_goal("30分/日")
         assert result is not None
-        assert result.get("参考書名") == "青チャート"
+        assert result.get("per_day_minutes") is None
 
-    def test_returns_none_for_invalid(self):
-        assert _parse_where_like(None) is None
-        assert _parse_where_like(123) is None
-        assert _parse_where_like([]) is None
+    def test_empty_string(self):
+        assert parse_monthly_goal("") is None
 
-    def test_empty_dict(self):
-        result = _parse_where_like({})
-        assert result == {}
+    def test_none_input(self):
+        assert parse_monthly_goal(None) is None
 
 
-class TestWeekCountFromDates:
-    """Tests for _week_count_from_dates function"""
+class TestColLetterToIndex:
+    """Tests for col_letter_to_index function"""
 
-    def test_four_weeks(self):
-        dget = {"data": {"week_starts": ["2025-08-04", "2025-08-11", "2025-08-18", "2025-08-25", ""]}}
-        assert _week_count_from_dates(dget) == 4
+    def test_single_letter(self):
+        assert col_letter_to_index("A") == 0
+        assert col_letter_to_index("B") == 1
+        assert col_letter_to_index("Z") == 25
 
-    def test_five_weeks(self):
-        dget = {"data": {"week_starts": ["2025-08-04", "2025-08-11", "2025-08-18", "2025-08-25", "2025-09-01"]}}
-        assert _week_count_from_dates(dget) == 5
+    def test_double_letter(self):
+        assert col_letter_to_index("AA") == 26
+        assert col_letter_to_index("AB") == 27
+        assert col_letter_to_index("AZ") == 51
 
-    def test_no_data_defaults_to_five(self):
-        dget = {}
-        # When no data, function defaults to 5
-        assert _week_count_from_dates(dget) == 5
-
-    def test_empty_week_starts_returns_length(self):
-        dget = {"data": {"week_starts": []}}
-        # When empty list, returns len(ws) = 0 (edge case)
-        assert _week_count_from_dates(dget) == 0
+    def test_lowercase(self):
+        assert col_letter_to_index("a") == 0
+        assert col_letter_to_index("aa") == 26
 
 
-class TestIndexByRow:
-    """Tests for _index_by_row function"""
+class TestToNumberOrNone:
+    """Tests for to_number_or_none function"""
 
-    def test_indexes_by_row(self):
-        items = [{"row": 4, "data": "a"}, {"row": 5, "data": "b"}]
-        result = _index_by_row(items)
-        assert result[4]["data"] == "a"
-        assert result[5]["data"] == "b"
+    def test_integer_string(self):
+        assert to_number_or_none("42") == 42
 
-    def test_custom_key(self):
-        items = [{"index": 1, "data": "a"}, {"index": 2, "data": "b"}]
-        result = _index_by_row(items, key="index")
-        assert result[1]["data"] == "a"
+    def test_float_string(self):
+        assert to_number_or_none("3.14") == 3.14
 
-    def test_empty_list(self):
-        assert _index_by_row([]) == {}
+    def test_integer(self):
+        assert to_number_or_none(42) == 42
 
-    def test_missing_key_skipped(self):
-        items = [{"row": 4, "data": "a"}, {"data": "b"}]
-        result = _index_by_row(items)
-        assert 4 in result
-        assert len(result) == 1
+    def test_float(self):
+        assert to_number_or_none(3.14) == 3.14
 
+    def test_none_returns_none(self):
+        assert to_number_or_none(None) is None
 
-class TestHmacFunctions:
-    """Tests for HMAC verification functions"""
+    def test_empty_string(self):
+        assert to_number_or_none("") is None
 
-    def test_hmac_required_defaults_false(self, monkeypatch):
-        monkeypatch.delenv("MCP_HMAC_REQUIRED", raising=False)
-        assert _hmac_required() is False
+    def test_whitespace(self):
+        assert to_number_or_none("  ") is None
 
-    def test_hmac_required_true(self, monkeypatch):
-        monkeypatch.setenv("MCP_HMAC_REQUIRED", "true")
-        assert _hmac_required() is True
-
-    def test_hmac_required_various_values(self, monkeypatch):
-        for val in ["1", "yes", "on", "true"]:
-            monkeypatch.setenv("MCP_HMAC_REQUIRED", val)
-            assert _hmac_required() is True
-
-    def test_hmac_secret_returns_none_if_not_set(self, monkeypatch):
-        monkeypatch.delenv("MCP_HMAC_SECRET", raising=False)
-        assert _hmac_secret() is None
-
-    def test_hmac_secret_returns_value(self, monkeypatch):
-        monkeypatch.setenv("MCP_HMAC_SECRET", "my-secret")
-        assert _hmac_secret() == "my-secret"
+    def test_invalid_string(self):
+        assert to_number_or_none("not a number") is None
 
 
-class TestVerifyHmac:
-    """Tests for _verify_hmac function"""
+class TestOkNg:
+    """Tests for ok/ng response builders"""
 
-    def test_no_secret_returns_ok(self, monkeypatch):
-        monkeypatch.delenv("MCP_HMAC_SECRET", raising=False)
-        ok, reason = _verify_hmac([], "GET", "/mcp")
-        assert ok is True
-        assert reason is None
+    def test_ok_basic(self):
+        result = ok("test.op", {"key": "value"})
+        assert result["ok"] is True
+        assert result["op"] == "test.op"
+        assert result["data"]["key"] == "value"
 
-    def test_valid_signature(self, monkeypatch):
-        secret = "test-secret"
-        monkeypatch.setenv("MCP_HMAC_SECRET", secret)
-        ts = str(int(time.time()))
-        method = "POST"
-        path = "/mcp"
-        mac = hmac.new(secret.encode(), f"{ts}.{method}.{path}".encode(), hashlib.sha256)
-        sig = mac.hexdigest()
-        headers = [
-            (b"x-mcp-ts", ts.encode()),
-            (b"x-mcp-sign", sig.encode()),
+    def test_ng_basic(self):
+        result = ng("test.op", "ERROR_CODE", "Error message")
+        assert result["ok"] is False
+        assert result["op"] == "test.op"
+        assert result["error"]["code"] == "ERROR_CODE"
+        assert result["error"]["message"] == "Error message"
+
+
+class TestDecidePrefix:
+    """Tests for decide_prefix function"""
+
+    def test_math_subject(self):
+        assert decide_prefix("数学", "青チャート") == "MA"
+
+    def test_math_b(self):
+        assert decide_prefix("数学B", "問題集") == "MB"
+
+    def test_english(self):
+        assert decide_prefix("英語", "長文読解") == "EN"
+
+    def test_english_writing(self):
+        assert decide_prefix("英語ライティング", "作文") == "EW"
+
+    def test_physics(self):
+        assert decide_prefix("物理", "力学") == "PP"
+
+    def test_unknown_subject(self):
+        assert decide_prefix("未知の科目", "テスト") == "XX"
+
+
+class TestNextIdForPrefix:
+    """Tests for next_id_for_prefix function"""
+
+    def test_first_id(self):
+        result = next_id_for_prefix("MB", [])
+        assert result == "gMB001"
+
+    def test_increments_existing(self):
+        existing = ["gMB001", "gMB002"]
+        result = next_id_for_prefix("MB", existing)
+        assert result == "gMB003"
+
+    def test_handles_gaps(self):
+        existing = ["gMB001", "gMB005"]
+        result = next_id_for_prefix("MB", existing)
+        assert result == "gMB006"
+
+    def test_ignores_other_prefixes(self):
+        existing = ["gEN001", "gEN002"]
+        result = next_id_for_prefix("MB", existing)
+        assert result == "gMB001"
+
+
+class TestExtractIdsFromValues:
+    """Tests for extract_ids_from_values function"""
+
+    def test_extracts_from_column(self):
+        values = [
+            ["ID", "Name"],
+            ["gMB001", "Book 1"],
+            ["gMB002", "Book 2"],
         ]
-        ok, reason = _verify_hmac(headers, method, path)
-        assert ok is True
+        result = extract_ids_from_values(values, 0)
+        assert "gMB001" in result
+        assert "gMB002" in result
 
-    def test_invalid_signature(self, monkeypatch):
-        monkeypatch.setenv("MCP_HMAC_SECRET", "test-secret")
-        ts = str(int(time.time()))
-        headers = [
-            (b"x-mcp-ts", ts.encode()),
-            (b"x-mcp-sign", b"invalid-signature"),
+    def test_includes_all_rows(self):
+        # extract_ids_from_values doesn't skip header - includes all non-empty values
+        values = [
+            ["ID", "Name"],
+            ["gMB001", "Book 1"],
         ]
-        ok, reason = _verify_hmac(headers, "POST", "/mcp")
-        assert ok is False
-        assert reason == "bad signature"
+        result = extract_ids_from_values(values, 0)
+        # Both "ID" (header) and "gMB001" are extracted
+        assert "ID" in result
+        assert "gMB001" in result
 
-    def test_timestamp_skew(self, monkeypatch):
-        secret = "test-secret"
-        monkeypatch.setenv("MCP_HMAC_SECRET", secret)
-        old_ts = str(int(time.time()) - 400)  # 400 seconds ago (> 300 threshold)
-        method = "POST"
-        path = "/mcp"
-        mac = hmac.new(secret.encode(), f"{old_ts}.{method}.{path}".encode(), hashlib.sha256)
-        sig = mac.hexdigest()
-        headers = [
-            (b"x-mcp-ts", old_ts.encode()),
-            (b"x-mcp-sign", sig.encode()),
+    def test_handles_empty_cells(self):
+        values = [
+            ["gMB001", "Book 1"],
+            ["", "Empty"],
+            ["gMB002", "Book 2"],
         ]
-        ok, reason = _verify_hmac(headers, method, path)
-        assert ok is False
-        assert reason == "timestamp skew"
+        result = extract_ids_from_values(values, 0)
+        assert "" not in result
+        # Only 2 non-empty values in column 0
+        assert len(result) == 2
+        assert "gMB001" in result
+        assert "gMB002" in result
 
-    def test_missing_headers_required(self, monkeypatch):
-        monkeypatch.setenv("MCP_HMAC_SECRET", "test-secret")
-        monkeypatch.setenv("MCP_HMAC_REQUIRED", "true")
-        ok, reason = _verify_hmac([], "POST", "/mcp")
-        assert ok is False
-        assert reason == "missing headers"
-
-    def test_missing_headers_optional(self, monkeypatch):
-        monkeypatch.setenv("MCP_HMAC_SECRET", "test-secret")
-        monkeypatch.setenv("MCP_HMAC_REQUIRED", "false")
-        ok, reason = _verify_hmac([], "POST", "/mcp")
-        assert ok is True
+    def test_handles_missing_column(self):
+        values = [
+            ["gMB001"],
+            ["gMB002"],
+        ]
+        # Accessing column 1 which doesn't exist
+        result = extract_ids_from_values(values, 1)
+        assert result == []
