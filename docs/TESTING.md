@@ -1,92 +1,16 @@
 # Testing Guide
 
-This document describes the testing infrastructure and how to run tests for the cram-books-mcp project.
+This document describes the testing infrastructure for the cram-books-mcp project.
 
 ## Overview
 
-The project has comprehensive test coverage across both GAS (Google Apps Script) and MCP (Model Context Protocol) components:
-
 | Component | Framework | Tests | Coverage |
 |-----------|-----------|-------|----------|
-| GAS lib/ | Vitest | 90 | ~100% |
-| GAS handlers/ | Vitest | 111 | ~88% |
-| MCP helpers | pytest | 66 | 100% |
-| MCP tools | pytest | 71 | ~72% |
-| **Total** | | **338** | ~80% |
+| MCP helpers (lib/) | pytest | 66 | 100% |
+| MCP tools | pytest | 75 | ~70% |
+| **Total** | | **141** | ~70% |
 
-## GAS Tests
-
-### Running Tests
-
-```bash
-cd apps/gas
-
-# Run all tests
-npm test
-
-# Run with coverage
-npm run test:coverage
-
-# Run in watch mode
-npm run test:watch
-```
-
-### Test Structure
-
-```
-apps/gas/src/
-├── lib/__tests__/           # Library function tests
-│   ├── common.test.ts       # API response helpers, normalization
-│   ├── id_rules.test.ts     # ID generation, prefix rules
-│   └── sheet_utils.test.ts  # Column picking, sheet utilities
-├── handlers/__tests__/      # Handler tests
-│   ├── books.test.ts        # Books CRUD (35 tests)
-│   ├── students.test.ts     # Students CRUD (34 tests)
-│   ├── planner.test.ts      # Planner operations (24 tests)
-│   └── planner_monthly.test.ts  # Monthly filter (18 tests)
-└── __mocks__/
-    └── gas-stubs.ts         # Google Apps Script mocks
-```
-
-### GAS Mocking
-
-Tests use Vitest with custom mocks for Google Apps Script globals:
-
-```typescript
-// apps/gas/src/__mocks__/gas-stubs.ts
-export const mockSpreadsheetApp = {
-  openById: vi.fn(),
-};
-
-export const mockCacheService = {
-  getScriptCache: vi.fn(() => ({
-    get: vi.fn(),
-    put: vi.fn(),
-    remove: vi.fn(),
-  })),
-};
-
-// Helper for common test setup
-export function mockSpreadsheetData(sheetData: Record<string, any[][]>) {
-  // Sets up mock spreadsheet with given data
-}
-```
-
-### Coverage Thresholds
-
-```typescript
-// apps/gas/vitest.config.ts
-thresholds: {
-  lines: 80,
-  branches: 60,
-  functions: 90,
-  statements: 80,
-}
-```
-
-## MCP Tests
-
-### Running Tests
+## Running Tests
 
 ```bash
 cd apps/mcp
@@ -99,52 +23,95 @@ uv run pytest tests/ --cov=. --cov-report=term-missing
 
 # Run specific test file
 uv run pytest tests/test_helpers.py -v
+
+# Run specific test class
+uv run pytest tests/test_books_tools.py::TestBooksFind -v
 ```
 
-### Test Structure
+## Test Structure
 
 ```
 apps/mcp/tests/
+├── conftest.py              # Fixtures and mock setup
 ├── test_helpers.py          # Helper function tests (66 tests)
 ├── test_books_tools.py      # Books tool tests (26 tests)
 ├── test_students_tools.py   # Students tool tests (25 tests)
-└── test_planner_tools.py    # Planner tool tests (20 tests)
+└── test_planner_tools.py    # Planner tool tests (24 tests)
 ```
 
-### HTTP Mocking
+## Handler Mocking
 
-Tests use pytest-httpx for mocking HTTP requests to GAS:
+Tests mock handlers directly instead of HTTP requests:
 
 ```python
 # apps/mcp/conftest.py
 
 @pytest.fixture
-def mock_gas_api(httpx_mock, gas_responses):
-    """Mock single GAS API response"""
-    def _mock_api(response_key: str, method: str = "GET"):
-        response = gas_responses.get(response_key)
-        httpx_mock.add_response(json=response)
-    return _mock_api
+def mock_sheets_client():
+    """Mock Google Sheets client"""
+    mock = MagicMock()
+    mock.get_all_values.return_value = []
+    return mock
 
 @pytest.fixture
-def mock_gas_sequence(httpx_mock, gas_responses):
-    """Mock sequence of GAS API responses"""
-    def _mock_sequence(response_keys: list[str]):
-        for key in response_keys:
-            httpx_mock.add_response(json=gas_responses[key])
-    return _mock_sequence
+def mock_handler_responses():
+    """Standard handler response templates"""
+    return {
+        "books.find": {"ok": True, "op": "books.find", "data": {...}},
+        "books.get": {"ok": True, "op": "books.get", "data": {...}},
+        # ... other responses
+    }
 ```
 
-### Example Test
+## Example Tests
+
+### Helper Function Test
 
 ```python
+from lib.common import normalize, ok, ng
+
+class TestNormalize:
+    def test_basic_normalization(self):
+        assert normalize("  Hello World  ") == "hello world"
+
+    def test_fullwidth_conversion(self):
+        assert normalize("ＡＢＣ") == "abc"
+```
+
+### Tool Test
+
+```python
+import pytest
+from unittest.mock import patch, MagicMock
+from server import books_find
+
 class TestBooksFind:
     @pytest.mark.asyncio
-    async def test_find_book_success(self, mock_gas_api):
-        mock_gas_api("books.find")
-        result = await books_find(query="Test Book")
-        assert result.get("ok") is True
+    async def test_find_book_success(self, mock_handler_responses):
+        with patch("server.get_sheets_client") as mock_client, \
+             patch("handlers.books.books_find") as mock_find:
+            mock_find.return_value = mock_handler_responses["books.find"]
+            result = await books_find(query="Test Book")
+            assert result.get("ok") is True
 ```
+
+## Test Categories
+
+### Helper Tests (test_helpers.py)
+
+| Category | Functions Tested |
+|----------|-----------------|
+| Common | normalize, ok, ng, to_number_or_none |
+| Sheet Utils | norm_header, pick_col, tokenize, parse_monthly_goal |
+| ID Rules | decide_prefix, next_id_for_prefix, extract_ids_from_values |
+
+### Tool Tests
+
+| File | Tools Tested |
+|------|-------------|
+| test_books_tools.py | books_find, books_get, books_filter, books_list, books_create, books_update, books_delete |
+| test_students_tools.py | students_list, students_find, students_get, students_filter, students_create, students_update, students_delete |
+| test_planner_tools.py | planner_ids_list, planner_dates_get/set, planner_plan_get/create, planner_monthly_filter, planner_guidance |
 
 ## CI/CD
 
@@ -152,69 +119,34 @@ Tests run automatically on GitHub Actions:
 
 - **Trigger**: Push to any branch, PR to main
 - **Workflow**: `.github/workflows/test.yml`
-- **Stages**:
-  1. GAS tests (Vitest + coverage)
-  2. MCP tests (pytest + coverage)
-  3. Coverage threshold validation
-
-### Viewing CI Results
-
-```bash
-# Check recent workflow runs
-gh run list --limit 5
-
-# View details of a specific run
-gh run view <run-id>
-```
-
-## Writing New Tests
-
-### GAS Handler Test
-
-```typescript
-import { describe, it, expect, beforeEach, vi } from "vitest";
-import { myHandler } from "../myHandler";
-import { resetAllMocks, mockSpreadsheetData } from "../../__mocks__/gas-stubs";
-
-describe("myHandler", () => {
-  beforeEach(() => {
-    resetAllMocks();
-    mockSpreadsheetData({ "SheetName": [...testData] });
-  });
-
-  it("should do something", () => {
-    const result = myHandler({ param: "value" });
-    expect(result.ok).toBe(true);
-  });
-});
-```
-
-### MCP Tool Test
-
-```python
-import pytest
-from server import my_tool
-
-class TestMyTool:
-    @pytest.mark.asyncio
-    async def test_basic_usage(self, mock_gas_api):
-        mock_gas_api("expected.response")
-        result = await my_tool(param="value")
-        assert result.get("ok") is True
-```
+- **Steps**:
+  1. Setup Python 3.12
+  2. Install dependencies with uv
+  3. Run pytest with coverage
+  4. Report results
 
 ## Troubleshooting
 
 ### Common Issues
 
-1. **GAS mock not returning expected data**
-   - Check `mockSpreadsheetData` call matches expected sheet structure
-   - Verify column headers match handler expectations
+1. **Import errors**
+   - Ensure you're in the `apps/mcp` directory
+   - Run `uv sync` to install dependencies
 
-2. **MCP test timeout**
-   - Ensure all HTTP requests are mocked
-   - Use `mock_gas_sequence` for multi-request handlers
+2. **Mock not returning expected data**
+   - Check that the correct handler is being mocked
+   - Verify mock return value matches expected response format
 
-3. **Coverage below threshold**
-   - Check uncovered lines in coverage report
-   - Add tests for error paths and edge cases
+3. **Async test issues**
+   - Ensure `@pytest.mark.asyncio` decorator is present
+   - Check that `pytest-asyncio` is installed
+
+### Running Individual Tests
+
+```bash
+# Run a single test
+uv run pytest tests/test_helpers.py::TestNormalize::test_basic_normalization -v
+
+# Run with print output
+uv run pytest tests/test_helpers.py -v -s
+```

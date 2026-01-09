@@ -1,6 +1,8 @@
 # スピードプランナー「月間管理」仕様メモ（読取のみ）
 
-目的
+> **Note (2026-01-09)**: MCPサーバーがGoogle Sheets APIを直接呼び出す構成に移行しました。
+
+## 目的
 - 生徒ごとのスプレッドシートにある「月間管理」シートから、指定の年月（B=年, C=月）の実績行をフィルタし、構造化して返す。
 - 書き込みは不要。LLMの集計・可視化・要約のための読み口を提供する。
 
@@ -51,10 +53,16 @@
 }
 ```
 
-API
-- GAS op: `planner.monthly.filter`（入力: student_id? / spreadsheet_id?, year(2桁/4桁), month(1..12)）
-- MCP tool: `planner_monthly_filter(year, month, student_id?, spreadsheet_id?)`
+## API
 
-テスト
-- `SPREADSHEET_ID=... YEAR=25 MONTH=8` を設定して E2E を実行。
+MCP tool: `planner_monthly_filter(year, month, student_id?, spreadsheet_id?)`
+- 入力: year(2桁/4桁), month(1..12), student_id または spreadsheet_id
+- 年は2桁(25)でも4桁(2025)でも可（内部で正規化）
+
+## テスト
+
+```bash
+cd apps/mcp
+uv run pytest tests/test_planner_tools.py::TestPlannerMonthlyFilter -v
+```
 
