@@ -120,3 +120,70 @@
 #### Total Test Count: 338
 - GAS: 201 tests (90 lib + 111 handlers)
 - MCP: 137 tests (66 helpers + 71 tools)
+
+## 2026-01-09
+
+### refactor: GAS WebApp廃止 → Google Sheets API直接アクセス + Railway移行
+
+#### 背景と課題
+- GAS WebApp: 頻繁に「Access Denied」になり、手動で再設定が必要
+- Cloud Run: 課金無効化でサービス停止、手動介入が必要
+- 本番運用に適さない不安定なアーキテクチャ
+
+#### 新アーキテクチャ
+```
+[Claude/LLM]
+   │  (MCP over HTTP/SSE)
+   ▼
+[Railway: MCP Server]
+   │  (Google Sheets API, Service Account認証)
+   ▼
+[Google Sheets: Books / Students / Planner]
+```
+
+#### 実装内容
+
+**Phase 1-2: Service Account設定（ユーザー作業完了）**
+- GCPでService Account作成（cram-book-mcp@cram-books-mcp-0830）
+- Google Sheets/Drive API有効化
+- フォルダ共有でSpreadsheetへのアクセス権限付与
+
+**Phase 3: MCP Server書き換え**
+- 新規ファイル作成:
+  - `env_loader.py`: .env/環境変数からのクレデンシャル読み込み
+  - `sheets_client.py`: gspreadラッパー（Service Account認証）
+  - `config.py`: 定数定義（シートID、列マッピング等）
+  - `lib/common.py`: normalize, ok, ng等の共通関数
+  - `lib/sheet_utils.py`: norm_header, pick_col, tokenize等
+  - `lib/id_rules.py`: decide_prefix, next_id_for_prefix
+  - `handlers/books.py`: books_* ツール群（IDF検索含む）
+  - `handlers/students.py`: students_* ツール群
+  - `handlers/planner.py`: planner_* 週間管理ツール群
+  - `handlers/planner_monthly.py`: planner_monthly_* 月間管理ツール群
+- `server.py`完全書き換え:
+  - HTTP呼び出し（_get/_post）を廃止
+  - handlers直接呼び出しパターンに変更
+  - 全23ツールを新アーキテクチャに対応
+- `Dockerfile`更新: google-auth, gspread, python-dotenv追加
+
+**Phase 3-4: テスト更新（141テスト）**
+- `conftest.py`: 新fixtures（mock_sheets_client, mock_handler_responses等）
+- `test_books_tools.py`: ハンドラーモックに対応
+- `test_students_tools.py`: 新アーキテクチャ対応
+- `test_planner_tools.py`: 新ツール名（planner_dates_set等）対応
+- `test_helpers.py`: libモジュール関数のテスト
+
+**Phase 4: Railway設定**
+- `railway.json`: Railway設定ファイル作成
+- `Procfile`: プロセス定義
+- `scripts/deploy_mcp.sh`: Railway CLIデプロイスクリプト
+
+#### 残タスク
+- Phase 5: E2Eテスト・検証
+  - Railway本番デプロイ
+  - MCP接続テスト
+- Phase 6: 旧インフラ廃止・ドキュメント更新
+  - Claude設定更新
+  - GAS WebAppアーカイブ
+  - Cloud Run削除（任意）
+  - README/AGENTS.md更新

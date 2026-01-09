@@ -1,52 +1,39 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Cloud Run へ MCP をデプロイするユーティリティ。
+# Railway へ MCP をデプロイするユーティリティ。
 # 使い方:
-#   source scripts/gcloud_env.example   # or set PROJECT_ID/REGION/SERVICE
 #   scripts/deploy_mcp.sh
+#
+# 事前準備:
+#   1. Railway CLI をインストール: npm install -g @railway/cli
+#   2. Railway にログイン: railway login
+#   3. プロジェクトをリンク: railway link (apps/mcp ディレクトリで)
+#
+# 環境変数 (Railway Dashboard で設定):
+#   - GOOGLE_CREDENTIALS_JSON: Service Account の JSON 内容
 
 ROOT_DIR=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
-cd "$ROOT_DIR"
+cd "$ROOT_DIR/apps/mcp"
 
-_cfg_proj=$(gcloud config get-value project --quiet 2>/dev/null || true)
-# If PROJECT_ID is unset, empty, (unset), or placeholder, fall back to gcloud config
-if [[ -z "${PROJECT_ID-}" || "${PROJECT_ID-}" == "" || "${PROJECT_ID-}" == "(unset)" || "${PROJECT_ID-}" == "your-gcp-project-id" ]]; then
-  PROJECT_ID="${_cfg_proj}"
-fi
-if [[ -z "${PROJECT_ID}" || "${PROJECT_ID}" == "(unset)" ]]; then
-  echo "PROJECT_ID is not set. Set env PROJECT_ID or run: gcloud config set project <ID>" >&2
-  exit 2
+# Check if railway CLI is installed
+if ! command -v railway &> /dev/null; then
+    echo "Railway CLI is not installed. Install with: npm install -g @railway/cli" >&2
+    exit 1
 fi
 
-REGION=${REGION:-asia-northeast1}
-SERVICE=${SERVICE:-cram-books-mcp}
-
-if [[ -z "${EXEC_URL-}" ]]; then
-  if [[ -f apps/gas/.prod_deploy_id ]]; then
-    DEPLOY_ID=$(tr -d '\r\n' < apps/gas/.prod_deploy_id)
-    EXEC_URL="https://script.google.com/macros/s/${DEPLOY_ID}/exec"
-  else
-    echo "apps/gas/.prod_deploy_id が見つかりません。EXEC_URL を明示してください。" >&2
-    exit 2
-  fi
+# Check if logged in
+if ! railway whoami &> /dev/null; then
+    echo "Not logged in to Railway. Run: railway login" >&2
+    exit 1
 fi
 
-echo "PROJECT_ID=${PROJECT_ID} REGION=${REGION} SERVICE=${SERVICE}" >&2
-gcloud run deploy "${SERVICE}" \
-  --project "${PROJECT_ID}" \
-  --source apps/mcp \
-  --region "${REGION}" \
-  --allow-unauthenticated \
-  --set-env-vars EXEC_URL="${EXEC_URL}" \
-  --timeout=3600 \
-  --concurrency=5 \
-  --min-instances=1 \
-  --port=8080 \
-  --quiet
+echo "Deploying to Railway..." >&2
+railway up
 
-URL=$(gcloud run services describe "${SERVICE}" --project "${PROJECT_ID}" --region "${REGION}" --format='value(status.url)')
-echo "SERVICE_URL=${URL}"
-
-# ヘルスチェック（406が正常）
-curl -i -sS "${URL}/mcp" | head -n 20 || true
+# Get service URL
+echo ""
+echo "Deployment complete. Check Railway dashboard for service URL." >&2
+echo ""
+echo "To set environment variables:" >&2
+echo "  railway variables set GOOGLE_CREDENTIALS_JSON='\$(cat service-account.json)'" >&2
