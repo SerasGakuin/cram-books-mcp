@@ -15,7 +15,6 @@ from config import STUDENTS_MASTER_ID, STUDENTS_SHEET, STUDENT_COLUMNS
 from lib.common import normalize
 from lib.sheet_utils import norm_header, extract_spreadsheet_id
 from lib.id_rules import next_id_for_prefix, extract_ids_from_values
-from lib.preview_cache import PreviewCache
 
 
 @dataclass

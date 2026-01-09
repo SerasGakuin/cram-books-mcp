@@ -15,7 +15,7 @@ class TestBooksHandlerInit:
 
     def test_init_uses_default_ids(self):
         """Should use default file_id and sheet_name from class variables."""
-        from handlers.books_handler import BooksHandler
+        from handlers.books import BooksHandler
 
         mock_sheets = MagicMock()
         handler = BooksHandler(mock_sheets)
@@ -26,7 +26,7 @@ class TestBooksHandlerInit:
 
     def test_init_accepts_custom_ids(self):
         """Should accept custom file_id and sheet_name."""
-        from handlers.books_handler import BooksHandler
+        from handlers.books import BooksHandler
 
         mock_sheets = MagicMock()
         handler = BooksHandler(mock_sheets, file_id="custom-file", sheet_name="CustomSheet")
@@ -40,7 +40,7 @@ class TestBooksHandlerColumnSpec:
 
     def test_column_spec_has_required_keys(self):
         """Should define all required column keys."""
-        from handlers.books_handler import BooksHandler
+        from handlers.books import BooksHandler
 
         required_keys = ["id", "title", "subject", "goal", "unit",
                          "chap_idx", "chap_name", "chap_begin", "chap_end",
@@ -55,7 +55,7 @@ class TestBooksHandlerFind:
 
     def test_find_requires_query(self):
         """Should return error when query is empty."""
-        from handlers.books_handler import BooksHandler
+        from handlers.books import BooksHandler
 
         mock_sheets = MagicMock()
         handler = BooksHandler(mock_sheets)
@@ -67,7 +67,7 @@ class TestBooksHandlerFind:
 
     def test_find_returns_candidates(self):
         """Should return scored candidates for valid query."""
-        from handlers.books_handler import BooksHandler
+        from handlers.books import BooksHandler
 
         mock_sheets = MagicMock()
         mock_sheets.get_all_values.return_value = [
@@ -86,7 +86,7 @@ class TestBooksHandlerFind:
 
     def test_find_exact_match_highest_score(self):
         """Exact match should have the highest score."""
-        from handlers.books_handler import BooksHandler
+        from handlers.books import BooksHandler
 
         mock_sheets = MagicMock()
         mock_sheets.get_all_values.return_value = [
@@ -106,7 +106,7 @@ class TestBooksHandlerFind:
 
     def test_find_respects_limit(self):
         """Should respect the limit parameter."""
-        from handlers.books_handler import BooksHandler
+        from handlers.books import BooksHandler
 
         mock_sheets = MagicMock()
         mock_sheets.get_all_values.return_value = [
@@ -130,7 +130,7 @@ class TestBooksHandlerGet:
 
     def test_get_requires_book_id(self):
         """Should return error when book_id is missing."""
-        from handlers.books_handler import BooksHandler
+        from handlers.books import BooksHandler
 
         mock_sheets = MagicMock()
         handler = BooksHandler(mock_sheets)
@@ -142,7 +142,7 @@ class TestBooksHandlerGet:
 
     def test_get_returns_book_details(self):
         """Should return book details with chapters."""
-        from handlers.books_handler import BooksHandler
+        from handlers.books import BooksHandler
 
         mock_sheets = MagicMock()
         mock_sheets.get_all_values.return_value = [
@@ -163,7 +163,7 @@ class TestBooksHandlerGet:
 
     def test_get_not_found(self):
         """Should return error for non-existent book."""
-        from handlers.books_handler import BooksHandler
+        from handlers.books import BooksHandler
 
         mock_sheets = MagicMock()
         mock_sheets.get_all_values.return_value = [
@@ -179,7 +179,7 @@ class TestBooksHandlerGet:
 
     def test_get_multiple_books(self):
         """Should return multiple books when book_ids list is provided."""
-        from handlers.books_handler import BooksHandler
+        from handlers.books import BooksHandler
 
         mock_sheets = MagicMock()
         mock_sheets.get_all_values.return_value = [
@@ -202,7 +202,7 @@ class TestBooksHandlerFilter:
 
     def test_filter_by_where(self):
         """Should filter by exact match (where)."""
-        from handlers.books_handler import BooksHandler
+        from handlers.books import BooksHandler
 
         mock_sheets = MagicMock()
         mock_sheets.get_all_values.return_value = [
@@ -220,7 +220,7 @@ class TestBooksHandlerFilter:
 
     def test_filter_by_contains(self):
         """Should filter by partial match (contains)."""
-        from handlers.books_handler import BooksHandler
+        from handlers.books import BooksHandler
 
         mock_sheets = MagicMock()
         mock_sheets.get_all_values.return_value = [
@@ -238,7 +238,7 @@ class TestBooksHandlerFilter:
 
     def test_filter_with_limit(self):
         """Should respect limit parameter."""
-        from handlers.books_handler import BooksHandler
+        from handlers.books import BooksHandler
 
         mock_sheets = MagicMock()
         mock_sheets.get_all_values.return_value = [
@@ -260,7 +260,7 @@ class TestBooksHandlerList:
 
     def test_list_returns_all_books(self):
         """Should return all books with basic info."""
-        from handlers.books_handler import BooksHandler
+        from handlers.books import BooksHandler
 
         mock_sheets = MagicMock()
         mock_sheets.get_all_values.return_value = [
@@ -282,7 +282,7 @@ class TestBooksHandlerList:
 
     def test_list_respects_limit(self):
         """Should respect limit parameter."""
-        from handlers.books_handler import BooksHandler
+        from handlers.books import BooksHandler
 
         mock_sheets = MagicMock()
         mock_sheets.get_all_values.return_value = [
@@ -304,7 +304,7 @@ class TestBooksHandlerCreate:
 
     def test_create_requires_title_and_subject(self):
         """Should return error when title or subject is missing."""
-        from handlers.books_handler import BooksHandler
+        from handlers.books import BooksHandler
 
         mock_sheets = MagicMock()
         mock_sheets.get_all_values.return_value = [
@@ -320,7 +320,7 @@ class TestBooksHandlerCreate:
 
     def test_create_generates_new_id(self):
         """Should generate new ID based on subject."""
-        from handlers.books_handler import BooksHandler
+        from handlers.books import BooksHandler
 
         mock_sheets = MagicMock()
         mock_sheets.get_all_values.return_value = [
@@ -338,7 +338,7 @@ class TestBooksHandlerCreate:
 
     def test_create_appends_rows(self):
         """Should append rows for parent and chapters."""
-        from handlers.books_handler import BooksHandler
+        from handlers.books import BooksHandler
 
         mock_sheets = MagicMock()
         mock_sheets.get_all_values.return_value = [
@@ -369,7 +369,7 @@ class TestBooksHandlerUpdate:
 
     def test_update_preview_mode(self):
         """Should return preview without confirm_token."""
-        from handlers.books_handler import BooksHandler
+        from handlers.books import BooksHandler
 
         mock_sheets = MagicMock()
         mock_sheets.get_all_values.return_value = [
@@ -387,7 +387,7 @@ class TestBooksHandlerUpdate:
 
     def test_update_confirm_mode(self):
         """Should apply updates with valid confirm_token."""
-        from handlers.books_handler import BooksHandler
+        from handlers.books import BooksHandler
 
         mock_sheets = MagicMock()
         mock_sheets.get_all_values.return_value = [
@@ -409,7 +409,7 @@ class TestBooksHandlerUpdate:
 
     def test_update_expired_token(self):
         """Should reject expired/invalid token."""
-        from handlers.books_handler import BooksHandler
+        from handlers.books import BooksHandler
 
         mock_sheets = MagicMock()
         mock_sheets.get_all_values.return_value = [
@@ -429,7 +429,7 @@ class TestBooksHandlerDelete:
 
     def test_delete_preview_mode(self):
         """Should return preview without confirm_token."""
-        from handlers.books_handler import BooksHandler
+        from handlers.books import BooksHandler
 
         mock_sheets = MagicMock()
         mock_sheets.get_all_values.return_value = [
@@ -446,7 +446,7 @@ class TestBooksHandlerDelete:
 
     def test_delete_confirm_mode(self):
         """Should delete with valid confirm_token."""
-        from handlers.books_handler import BooksHandler
+        from handlers.books import BooksHandler
 
         mock_sheets = MagicMock()
         mock_sheets.get_all_values.return_value = [
@@ -468,7 +468,7 @@ class TestBooksHandlerDelete:
 
     def test_delete_not_found(self):
         """Should return error for non-existent book."""
-        from handlers.books_handler import BooksHandler
+        from handlers.books import BooksHandler
 
         mock_sheets = MagicMock()
         mock_sheets.get_all_values.return_value = [
@@ -488,7 +488,7 @@ class TestBooksHandlerChapterParsing:
 
     def test_parses_chapters_from_child_rows(self):
         """Should parse chapters from child rows (rows without ID)."""
-        from handlers.books_handler import BooksHandler
+        from handlers.books import BooksHandler
 
         mock_sheets = MagicMock()
         mock_sheets.get_all_values.return_value = [
@@ -516,7 +516,7 @@ class TestBooksHandlerChapterParsing:
 
     def test_handles_missing_chapter_fields(self):
         """Should handle rows with missing chapter fields gracefully."""
-        from handlers.books_handler import BooksHandler
+        from handlers.books import BooksHandler
 
         mock_sheets = MagicMock()
         mock_sheets.get_all_values.return_value = [
@@ -540,7 +540,7 @@ class TestBooksHandlerIdfScoring:
 
     def test_idf_term_in_single_doc_gets_high_weight(self):
         """Term appearing in single document should get high IDF weight."""
-        from handlers.books_handler import BooksHandler, _calculate_idf
+        from handlers.books import BooksHandler, _calculate_idf
 
         # Term appears in 1 out of 100 documents
         doc_freq = {"rare_term": 1}
@@ -553,7 +553,7 @@ class TestBooksHandlerIdfScoring:
 
     def test_idf_common_term_gets_low_weight(self):
         """Term appearing in many documents should get low IDF weight."""
-        from handlers.books_handler import BooksHandler, _calculate_idf
+        from handlers.books import BooksHandler, _calculate_idf
 
         # Term appears in 90 out of 100 documents
         doc_freq = {"common_term": 90}
@@ -566,7 +566,7 @@ class TestBooksHandlerIdfScoring:
 
     def test_subject_bonus_applies(self):
         """Subject match should boost relevance score."""
-        from handlers.books_handler import BooksHandler
+        from handlers.books import BooksHandler
 
         mock_sheets = MagicMock()
         mock_sheets.get_all_values.return_value = [

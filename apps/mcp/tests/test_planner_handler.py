@@ -15,7 +15,7 @@ class TestPlannerHandlerInit:
 
     def test_init_accepts_sheets_client(self):
         """Should accept a SheetsClient instance."""
-        from handlers.planner_handler import PlannerHandler
+        from handlers.planner import PlannerHandler
 
         mock_sheets = MagicMock()
         handler = PlannerHandler(mock_sheets)
@@ -28,7 +28,7 @@ class TestPlannerHandlerResolve:
 
     def test_resolve_with_direct_spreadsheet_id(self):
         """Should use direct spreadsheet_id if provided."""
-        from handlers.planner_handler import PlannerHandler
+        from handlers.planner import PlannerHandler
 
         mock_sheets = MagicMock()
         mock_ss = MagicMock()
@@ -43,7 +43,7 @@ class TestPlannerHandlerResolve:
 
     def test_resolve_from_student_id(self):
         """Should resolve spreadsheet_id from student's planner link."""
-        from handlers.planner_handler import PlannerHandler
+        from handlers.planner import PlannerHandler
 
         mock_sheets = MagicMock()
         mock_sheets.get_all_values.return_value = [
@@ -61,7 +61,7 @@ class TestPlannerHandlerResolve:
 
     def test_resolve_not_found(self):
         """Should return error when planner not found."""
-        from handlers.planner_handler import PlannerHandler
+        from handlers.planner import PlannerHandler
 
         mock_sheets = MagicMock()
         mock_sheets.get_all_values.return_value = [
@@ -80,7 +80,7 @@ class TestPlannerHandlerIdsList:
 
     def test_ids_list_returns_items(self):
         """Should return planner items from ABCD columns."""
-        from handlers.planner_handler import PlannerHandler
+        from handlers.planner import PlannerHandler
 
         mock_sheets = MagicMock()
         mock_ss = MagicMock()
@@ -105,7 +105,7 @@ class TestPlannerHandlerDates:
 
     def test_dates_get_returns_week_starts(self):
         """Should return week start dates from header row."""
-        from handlers.planner_handler import PlannerHandler
+        from handlers.planner import PlannerHandler
 
         mock_sheets = MagicMock()
         mock_ss = MagicMock()
@@ -122,7 +122,7 @@ class TestPlannerHandlerDates:
 
     def test_dates_set_requires_start_date(self):
         """Should return error when start_date is missing."""
-        from handlers.planner_handler import PlannerHandler
+        from handlers.planner import PlannerHandler
 
         mock_sheets = MagicMock()
         handler = PlannerHandler(mock_sheets)
@@ -134,7 +134,7 @@ class TestPlannerHandlerDates:
 
     def test_dates_set_updates_cell(self):
         """Should update the first week start date cell."""
-        from handlers.planner_handler import PlannerHandler
+        from handlers.planner import PlannerHandler
 
         mock_sheets = MagicMock()
         mock_ss = MagicMock()
@@ -154,7 +154,7 @@ class TestPlannerHandlerMetrics:
 
     def test_metrics_get_returns_weeks(self):
         """Should return metrics for each week."""
-        from handlers.planner_handler import PlannerHandler
+        from handlers.planner import PlannerHandler
 
         mock_sheets = MagicMock()
         mock_ss = MagicMock()
@@ -178,7 +178,7 @@ class TestPlannerHandlerPlanGet:
 
     def test_plan_get_returns_weeks(self):
         """Should return plan text for each week."""
-        from handlers.planner_handler import PlannerHandler
+        from handlers.planner import PlannerHandler
 
         mock_sheets = MagicMock()
         mock_ss = MagicMock()
@@ -201,7 +201,7 @@ class TestPlannerHandlerPlanSet:
 
     def test_plan_set_single_mode(self):
         """Should set plan text in single mode."""
-        from handlers.planner_handler import PlannerHandler
+        from handlers.planner import PlannerHandler
 
         mock_sheets = MagicMock()
         mock_ss = MagicMock()
@@ -223,7 +223,7 @@ class TestPlannerHandlerPlanSet:
 
     def test_plan_set_rejects_too_long(self):
         """Should reject plan_text that exceeds max length."""
-        from handlers.planner_handler import PlannerHandler
+        from handlers.planner import PlannerHandler
 
         mock_sheets = MagicMock()
         mock_ss = MagicMock()
@@ -244,7 +244,7 @@ class TestPlannerHandlerPlanSet:
 
     def test_plan_set_validates_week_index(self):
         """Should validate week_index is 1-5."""
-        from handlers.planner_handler import PlannerHandler
+        from handlers.planner import PlannerHandler
 
         mock_sheets = MagicMock()
         mock_ss = MagicMock()
@@ -265,7 +265,7 @@ class TestPlannerHandlerPlanSet:
 
     def test_plan_set_batch_mode(self):
         """Should set multiple plan texts in batch mode."""
-        from handlers.planner_handler import PlannerHandler
+        from handlers.planner import PlannerHandler
 
         mock_sheets = MagicMock()
         mock_ss = MagicMock()
@@ -291,7 +291,7 @@ class TestPlannerHandlerMonthlyFilter:
 
     def test_monthly_filter_by_year_month(self):
         """Should filter monthly planner by year and month."""
-        from handlers.planner_handler import PlannerHandler
+        from handlers.planner import PlannerHandler
 
         mock_sheets = MagicMock()
         mock_ss = MagicMock()
@@ -314,7 +314,7 @@ class TestPlannerHandlerMonthlyFilter:
 
     def test_monthly_filter_normalizes_year(self):
         """Should normalize 4-digit year to 2-digit."""
-        from handlers.planner_handler import PlannerHandler
+        from handlers.planner import PlannerHandler
 
         mock_sheets = MagicMock()
         mock_ss = MagicMock()
@@ -335,7 +335,7 @@ class TestPlannerHandlerMonthlyFilter:
 
     def test_monthly_filter_validates_month(self):
         """Should validate month is 1-12."""
-        from handlers.planner_handler import PlannerHandler
+        from handlers.planner import PlannerHandler
 
         mock_sheets = MagicMock()
         handler = PlannerHandler(mock_sheets)
@@ -351,7 +351,7 @@ class TestPlannerHandlerBookCodeParsing:
 
     def test_parse_book_code_with_valid_format(self):
         """Should parse month code and book ID from A column."""
-        from handlers.planner_handler import _parse_book_code
+        from handlers.planner import _parse_book_code
 
         result = _parse_book_code("261gMA001")
 
@@ -360,7 +360,7 @@ class TestPlannerHandlerBookCodeParsing:
 
     def test_parse_book_code_with_4digit_month(self):
         """Should handle 4-digit month codes."""
-        from handlers.planner_handler import _parse_book_code
+        from handlers.planner import _parse_book_code
 
         result = _parse_book_code("2512gMA001")
 
@@ -369,7 +369,7 @@ class TestPlannerHandlerBookCodeParsing:
 
     def test_parse_book_code_empty(self):
         """Should handle empty input."""
-        from handlers.planner_handler import _parse_book_code
+        from handlers.planner import _parse_book_code
 
         result = _parse_book_code("")
 
@@ -378,7 +378,7 @@ class TestPlannerHandlerBookCodeParsing:
 
     def test_parse_book_code_no_prefix(self):
         """Should handle input without month code prefix."""
-        from handlers.planner_handler import _parse_book_code
+        from handlers.planner import _parse_book_code
 
         result = _parse_book_code("gMA001")
 

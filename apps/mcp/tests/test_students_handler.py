@@ -15,7 +15,7 @@ class TestStudentsHandlerInit:
 
     def test_init_uses_default_ids(self):
         """Should use default file_id and sheet_name from class variables."""
-        from handlers.students_handler import StudentsHandler
+        from handlers.students import StudentsHandler
 
         mock_sheets = MagicMock()
         handler = StudentsHandler(mock_sheets)
@@ -25,7 +25,7 @@ class TestStudentsHandlerInit:
 
     def test_init_accepts_custom_ids(self):
         """Should accept custom file_id and sheet_name."""
-        from handlers.students_handler import StudentsHandler
+        from handlers.students import StudentsHandler
 
         mock_sheets = MagicMock()
         handler = StudentsHandler(mock_sheets, file_id="custom-file", sheet_name="CustomSheet")
@@ -39,7 +39,7 @@ class TestStudentsHandlerColumnSpec:
 
     def test_column_spec_has_required_keys(self):
         """Should define all required column keys."""
-        from handlers.students_handler import StudentsHandler
+        from handlers.students import StudentsHandler
 
         required_keys = ["id", "name", "grade", "status", "planner_link",
                          "planner_sheet_id", "meeting_doc", "tags"]
@@ -53,7 +53,7 @@ class TestStudentsHandlerList:
 
     def test_list_returns_all_students(self):
         """Should return all students."""
-        from handlers.students_handler import StudentsHandler
+        from handlers.students import StudentsHandler
 
         mock_sheets = MagicMock()
         mock_sheets.get_all_values.return_value = [
@@ -71,7 +71,7 @@ class TestStudentsHandlerList:
 
     def test_list_respects_limit(self):
         """Should respect limit parameter."""
-        from handlers.students_handler import StudentsHandler
+        from handlers.students import StudentsHandler
 
         mock_sheets = MagicMock()
         mock_sheets.get_all_values.return_value = [
@@ -89,7 +89,7 @@ class TestStudentsHandlerList:
 
     def test_list_empty_sheet(self):
         """Should return empty list for empty sheet."""
-        from handlers.students_handler import StudentsHandler
+        from handlers.students import StudentsHandler
 
         mock_sheets = MagicMock()
         mock_sheets.get_all_values.return_value = [
@@ -108,7 +108,7 @@ class TestStudentsHandlerFind:
 
     def test_find_requires_query(self):
         """Should return error when query is empty."""
-        from handlers.students_handler import StudentsHandler
+        from handlers.students import StudentsHandler
 
         mock_sheets = MagicMock()
         handler = StudentsHandler(mock_sheets)
@@ -120,7 +120,7 @@ class TestStudentsHandlerFind:
 
     def test_find_returns_candidates(self):
         """Should return scored candidates for valid query."""
-        from handlers.students_handler import StudentsHandler
+        from handlers.students import StudentsHandler
 
         mock_sheets = MagicMock()
         mock_sheets.get_all_values.return_value = [
@@ -138,7 +138,7 @@ class TestStudentsHandlerFind:
 
     def test_find_exact_match_highest_score(self):
         """Exact match should have the highest score."""
-        from handlers.students_handler import StudentsHandler
+        from handlers.students import StudentsHandler
 
         mock_sheets = MagicMock()
         mock_sheets.get_all_values.return_value = [
@@ -158,7 +158,7 @@ class TestStudentsHandlerFind:
 
     def test_find_respects_limit(self):
         """Should respect the limit parameter."""
-        from handlers.students_handler import StudentsHandler
+        from handlers.students import StudentsHandler
 
         mock_sheets = MagicMock()
         mock_sheets.get_all_values.return_value = [
@@ -181,7 +181,7 @@ class TestStudentsHandlerGet:
 
     def test_get_requires_student_id(self):
         """Should return error when student_id is missing."""
-        from handlers.students_handler import StudentsHandler
+        from handlers.students import StudentsHandler
 
         mock_sheets = MagicMock()
         handler = StudentsHandler(mock_sheets)
@@ -193,7 +193,7 @@ class TestStudentsHandlerGet:
 
     def test_get_returns_student_details(self):
         """Should return student details."""
-        from handlers.students_handler import StudentsHandler
+        from handlers.students import StudentsHandler
 
         mock_sheets = MagicMock()
         mock_sheets.get_all_values.return_value = [
@@ -212,7 +212,7 @@ class TestStudentsHandlerGet:
 
     def test_get_not_found(self):
         """Should return error for non-existent student."""
-        from handlers.students_handler import StudentsHandler
+        from handlers.students import StudentsHandler
 
         mock_sheets = MagicMock()
         mock_sheets.get_all_values.return_value = [
@@ -228,7 +228,7 @@ class TestStudentsHandlerGet:
 
     def test_get_multiple_students(self):
         """Should return multiple students when student_ids list is provided."""
-        from handlers.students_handler import StudentsHandler
+        from handlers.students import StudentsHandler
 
         mock_sheets = MagicMock()
         mock_sheets.get_all_values.return_value = [
@@ -251,7 +251,7 @@ class TestStudentsHandlerFilter:
 
     def test_filter_by_where(self):
         """Should filter by exact match (where)."""
-        from handlers.students_handler import StudentsHandler
+        from handlers.students import StudentsHandler
 
         mock_sheets = MagicMock()
         mock_sheets.get_all_values.return_value = [
@@ -269,7 +269,7 @@ class TestStudentsHandlerFilter:
 
     def test_filter_by_contains(self):
         """Should filter by partial match (contains)."""
-        from handlers.students_handler import StudentsHandler
+        from handlers.students import StudentsHandler
 
         mock_sheets = MagicMock()
         mock_sheets.get_all_values.return_value = [
@@ -287,7 +287,7 @@ class TestStudentsHandlerFilter:
 
     def test_filter_with_limit(self):
         """Should respect limit parameter."""
-        from handlers.students_handler import StudentsHandler
+        from handlers.students import StudentsHandler
 
         mock_sheets = MagicMock()
         mock_sheets.get_all_values.return_value = [
@@ -309,7 +309,7 @@ class TestStudentsHandlerCreate:
 
     def test_create_generates_new_id(self):
         """Should generate new ID with prefix (format: g{prefix}{seq})."""
-        from handlers.students_handler import StudentsHandler
+        from handlers.students import StudentsHandler
 
         mock_sheets = MagicMock()
         mock_sheets.get_all_values.return_value = [
@@ -327,7 +327,7 @@ class TestStudentsHandlerCreate:
 
     def test_create_with_custom_prefix(self):
         """Should use custom ID prefix (format: g{prefix}{seq})."""
-        from handlers.students_handler import StudentsHandler
+        from handlers.students import StudentsHandler
 
         mock_sheets = MagicMock()
         mock_sheets.get_all_values.return_value = [
@@ -343,7 +343,7 @@ class TestStudentsHandlerCreate:
 
     def test_create_appends_row(self):
         """Should append a row with student data."""
-        from handlers.students_handler import StudentsHandler
+        from handlers.students import StudentsHandler
 
         mock_sheets = MagicMock()
         mock_sheets.get_all_values.return_value = [
@@ -362,7 +362,7 @@ class TestStudentsHandlerUpdate:
 
     def test_update_requires_student_id(self):
         """Should return error when student_id is missing."""
-        from handlers.students_handler import StudentsHandler
+        from handlers.students import StudentsHandler
 
         mock_sheets = MagicMock()
         handler = StudentsHandler(mock_sheets)
@@ -374,7 +374,7 @@ class TestStudentsHandlerUpdate:
 
     def test_update_preview_mode(self):
         """Should return preview without confirm_token."""
-        from handlers.students_handler import StudentsHandler
+        from handlers.students import StudentsHandler
 
         mock_sheets = MagicMock()
         mock_sheets.get_all_values.return_value = [
@@ -392,7 +392,7 @@ class TestStudentsHandlerUpdate:
 
     def test_update_confirm_mode(self):
         """Should apply updates with valid confirm_token."""
-        from handlers.students_handler import StudentsHandler
+        from handlers.students import StudentsHandler
 
         mock_sheets = MagicMock()
         mock_sheets.get_all_values.return_value = [
@@ -414,7 +414,7 @@ class TestStudentsHandlerUpdate:
 
     def test_update_expired_token(self):
         """Should reject expired/invalid token."""
-        from handlers.students_handler import StudentsHandler
+        from handlers.students import StudentsHandler
 
         mock_sheets = MagicMock()
         mock_sheets.get_all_values.return_value = [
@@ -430,7 +430,7 @@ class TestStudentsHandlerUpdate:
 
     def test_update_not_found(self):
         """Should return error for non-existent student."""
-        from handlers.students_handler import StudentsHandler
+        from handlers.students import StudentsHandler
 
         mock_sheets = MagicMock()
         mock_sheets.get_all_values.return_value = [
@@ -450,7 +450,7 @@ class TestStudentsHandlerDelete:
 
     def test_delete_requires_student_id(self):
         """Should return error when student_id is missing."""
-        from handlers.students_handler import StudentsHandler
+        from handlers.students import StudentsHandler
 
         mock_sheets = MagicMock()
         handler = StudentsHandler(mock_sheets)
@@ -462,7 +462,7 @@ class TestStudentsHandlerDelete:
 
     def test_delete_preview_mode(self):
         """Should return preview without confirm_token."""
-        from handlers.students_handler import StudentsHandler
+        from handlers.students import StudentsHandler
 
         mock_sheets = MagicMock()
         mock_sheets.get_all_values.return_value = [
@@ -479,7 +479,7 @@ class TestStudentsHandlerDelete:
 
     def test_delete_confirm_mode(self):
         """Should delete with valid confirm_token."""
-        from handlers.students_handler import StudentsHandler
+        from handlers.students import StudentsHandler
 
         mock_sheets = MagicMock()
         mock_sheets.get_all_values.return_value = [
@@ -501,7 +501,7 @@ class TestStudentsHandlerDelete:
 
     def test_delete_not_found(self):
         """Should return error for non-existent student."""
-        from handlers.students_handler import StudentsHandler
+        from handlers.students import StudentsHandler
 
         mock_sheets = MagicMock()
         mock_sheets.get_all_values.return_value = [
@@ -521,7 +521,7 @@ class TestStudentsHandlerPlannerIdExtraction:
 
     def test_extracts_planner_id_from_link(self):
         """Should extract planner sheet ID from Google Sheets URL."""
-        from handlers.students_handler import StudentsHandler
+        from handlers.students import StudentsHandler
 
         mock_sheets = MagicMock()
         mock_sheets.get_all_values.return_value = [
@@ -538,7 +538,7 @@ class TestStudentsHandlerPlannerIdExtraction:
 
     def test_uses_existing_planner_id_if_present(self):
         """Should use existing planner sheet ID if already present."""
-        from handlers.students_handler import StudentsHandler
+        from handlers.students import StudentsHandler
 
         mock_sheets = MagicMock()
         # Use valid column names: "スピードプランナーID" is in STUDENT_COLUMNS["planner_sheet_id"]

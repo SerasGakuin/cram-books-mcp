@@ -17,9 +17,9 @@ except ImportError:
 
 # Import handlers (OOP-based handler classes)
 from sheets_client import get_sheets_client
-from handlers.books_handler import BooksHandler
-from handlers.students_handler import StudentsHandler
-from handlers.planner_handler import PlannerHandler
+from handlers.books import BooksHandler
+from handlers.students import StudentsHandler
+from handlers.planner import PlannerHandler
 from lib.input_parser import coerce_str as _coerce_str, as_list as _as_list
 
 # Configure transport security to allow Railway domain
