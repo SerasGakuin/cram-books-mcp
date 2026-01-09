@@ -84,7 +84,7 @@ cram-books-mcp/
 │   ├── input_parser.py    # 入力検証
 │   └── preview_cache.py   # PreviewCache class
 │
-└── tests/                 # テスト（280件）
+└── tests/                 # テスト（291件）
     ├── conftest.py        # フィクスチャ
     ├── test_helpers.py    # lib/のテスト
     ├── test_base_handler.py
@@ -300,7 +300,7 @@ class BooksHandler(BaseHandler, SearchMixin):
 | Lib | test_helpers.py | 純粋関数 |
 | Core | test_base_handler.py, test_preview_cache.py | 基盤機能 |
 
-### テスト数（280件）
+### テスト数（291件）
 
 | カテゴリ | 件数 |
 |---------|------|
