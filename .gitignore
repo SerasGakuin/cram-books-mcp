@@ -29,6 +29,12 @@ apps/gas/.clasp.json
 .env.local
 .env.*.local
 
+# Service Account credentials (NEVER commit these)
+service-account*.json
+*-credentials.json
+cram-books-mcp-*.json
+*.pem
+
 # IDE
 .vscode/
 .idea/

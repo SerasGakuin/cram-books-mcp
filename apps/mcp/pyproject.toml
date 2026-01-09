@@ -10,6 +10,12 @@ requires-python = ">=3.12"
 dependencies = [
     "httpx>=0.28.1",
     "mcp[cli]>=1.13.1",
+    # Google Sheets API direct access
+    "google-auth>=2.27.0",
+    "google-api-python-client>=2.100.0",
+    "gspread>=6.0.0",
+    # Environment variable management
+    "python-dotenv>=1.0.0",
 ]
 
 [project.optional-dependencies]
