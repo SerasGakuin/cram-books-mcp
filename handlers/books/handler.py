@@ -10,10 +10,11 @@ from dataclasses import dataclass
 from typing import Any, ClassVar
 
 from core.base_handler import BaseHandler
+from core.two_phase_mixin import TwoPhaseOperationMixin
 from sheets_client import SheetsClient
 from config import BOOKS_MASTER_ID, BOOKS_SHEET, BOOK_COLUMNS
 from lib.common import to_number_or_none
-from lib.sheet_utils import parse_monthly_goal
+from lib.sheet_utils import parse_monthly_goal, index_to_col_letter
 from lib.id_rules import decide_prefix, next_id_for_prefix, extract_ids_from_values
 
 from handlers.books.search import SearchMixin
@@ -37,14 +38,14 @@ class BookMeta:
     quiz_id: str = ""
 
 
-class BooksHandler(BaseHandler, SearchMixin):
+class BooksHandler(BaseHandler, SearchMixin, TwoPhaseOperationMixin):
     """
     Handler for book-related operations.
 
     Extends BaseHandler with book-specific functionality:
     - IDF-weighted search (find) - via SearchMixin
     - Chapter parsing from child rows
-    - Two-phase update/delete with preview confirmation
+    - Two-phase update/delete with preview confirmation - via TwoPhaseOperationMixin
     """
 
     DEFAULT_FILE_ID: ClassVar[str] = BOOKS_MASTER_ID
@@ -584,28 +585,52 @@ class BooksHandler(BaseHandler, SearchMixin):
         Returns:
             Preview response or update confirmation
         """
-        if not book_id:
-            return self._error("books.update", "BAD_REQUEST", "book_id が必要です")
+        op = "books.update"
 
-        error = self.load_sheet("books.update")
+        if not book_id:
+            return self._error(op, "BAD_REQUEST", "book_id が必要です")
+
+        error = self.load_sheet(op)
         if error:
             return error
 
         if not self.values:
-            return self._error("books.update", "EMPTY", "シートが空です")
+            return self._error(op, "EMPTY", "シートが空です")
 
         # Find book block
         parent_row, end_row = self._find_book_block(str(book_id))
 
         if parent_row < 0:
-            return self._error("books.update", "NOT_FOUND", f"book_id '{book_id}' が見つかりません")
+            return self._error(op, "NOT_FOUND", f"book_id '{book_id}' が見つかりません")
 
         # Preview mode
         if not confirm_token:
-            return self._update_preview(book_id, updates or {}, parent_row, end_row)
+            payload, preview_data = self._build_update_preview(
+                book_id, updates or {}, parent_row, end_row
+            )
+            return self.store_preview(
+                op=op,
+                cache_prefix="upd",
+                entity_id=book_id,
+                payload=payload,
+                preview_data=preview_data,
+                entity_id_key="book_id",
+            )
 
         # Confirm mode
-        return self._update_confirm(book_id, confirm_token)
+        result = self.validate_confirm(
+            op=op,
+            cache_prefix="upd",
+            entity_id=book_id,
+            confirm_token=confirm_token,
+            entity_id_key="book_id",
+        )
+
+        if not result["valid"]:
+            err = result["error"]
+            return self._error(op, err["code"], err["message"])
+
+        return self._execute_update(op, result["payload"])
 
     def _find_book_block(self, target_id: str) -> tuple[int, int]:
         """Find parent row and end row for a book block."""
@@ -632,14 +657,19 @@ class BooksHandler(BaseHandler, SearchMixin):
 
         return parent_row, end_row
 
-    def _update_preview(
+    def _build_update_preview(
         self,
         book_id: str,
         updates: dict,
         parent_row: int,
         end_row: int,
-    ) -> dict[str, Any]:
-        """Generate update preview."""
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """
+        Build update preview data.
+
+        Returns:
+            Tuple of (payload_for_cache, preview_data_for_response)
+        """
         current = self.values[parent_row - 1]
         idx = self.column_indices
 
@@ -663,39 +693,22 @@ class BooksHandler(BaseHandler, SearchMixin):
             next_child_rows = max(0, len(updates["chapters"]) - 1)
             chapters_preview = {"from_count": existing_child_rows, "to_count": next_child_rows}
 
-        token = self._preview_cache.store("upd", {
-            "book_id": book_id,
+        payload = {
             "updates": updates,
             "parent_row": parent_row,
             "end_row": end_row,
-        })
+        }
+        preview_data = {
+            "book_id": book_id,
+            "meta_changes": meta_changes,
+            "chapters": chapters_preview,
+        }
+        return payload, preview_data
 
-        return self._ok("books.update", {
-            "requires_confirmation": True,
-            "preview": {
-                "book_id": book_id,
-                "meta_changes": meta_changes,
-                "chapters": chapters_preview,
-            },
-            "confirm_token": token,
-            "expires_in_seconds": self._preview_cache.ttl_seconds,
-        })
-
-    def _update_confirm(self, book_id: str, confirm_token: str) -> dict[str, Any]:
+    def _execute_update(self, op: str, payload: dict[str, Any]) -> dict[str, Any]:
         """Apply confirmed update."""
-        cached = self._preview_cache.pop("upd", confirm_token)
-        if not cached:
-            return self._error("books.update", "CONFIRM_EXPIRED",
-                             "confirm_token が無効または期限切れです")
-
-        if cached["book_id"] != book_id:
-            return self._error("books.update", "CONFIRM_MISMATCH", "book_id が一致しません")
-
-        # Apply updates
-        updates_to_apply = cached["updates"]
-        update_requests = []
-
-        parent_row = cached["parent_row"]
+        updates_to_apply = payload["updates"]
+        parent_row = payload["parent_row"]
         idx = self.column_indices
         field_map = {
             "title": idx.get("title", -1),
@@ -704,16 +717,16 @@ class BooksHandler(BaseHandler, SearchMixin):
             "unit_load": idx.get("unit", -1),
         }
 
+        update_requests = []
         for key, col_idx in field_map.items():
             if key in updates_to_apply and col_idx >= 0:
-                from lib.sheet_utils import index_to_col_letter
                 cell = f"{index_to_col_letter(col_idx)}{parent_row}"
                 update_requests.append({"range": cell, "values": [[updates_to_apply[key]]]})
 
         if update_requests:
             self.sheets.batch_update(self.file_id, self.sheet_name, update_requests)
 
-        return self._ok("books.update", {"book_id": book_id, "updated": True})
+        return self._ok(op, {"book_id": payload.get("book_id"), "updated": True})
 
     # === Delete (Two-phase) ===
 
@@ -732,51 +745,60 @@ class BooksHandler(BaseHandler, SearchMixin):
         Returns:
             Preview response or delete confirmation
         """
-        if not book_id:
-            return self._error("books.delete", "BAD_REQUEST", "book_id が必要です")
+        op = "books.delete"
 
-        error = self.load_sheet("books.delete")
+        if not book_id:
+            return self._error(op, "BAD_REQUEST", "book_id が必要です")
+
+        error = self.load_sheet(op)
         if error:
             return error
 
         if not self.values:
-            return self._error("books.delete", "EMPTY", "シートが空です")
+            return self._error(op, "EMPTY", "シートが空です")
 
         # Find book block
         parent_row, end_row = self._find_book_block(str(book_id))
 
         if parent_row < 0:
-            return self._error("books.delete", "NOT_FOUND", f"book_id '{book_id}' が見つかりません")
+            return self._error(op, "NOT_FOUND", f"book_id '{book_id}' が見つかりません")
 
         # Preview mode
         if not confirm_token:
-            token = self._preview_cache.store("del", {
-                "book_id": book_id,
+            payload = {
                 "parent_row": parent_row,
                 "end_row": end_row,
-            })
-
-            return self._ok("books.delete", {
-                "requires_confirmation": True,
-                "preview": {
-                    "book_id": book_id,
-                    "delete_rows": end_row - parent_row,
-                    "range": {"start_row": parent_row, "end_row": end_row - 1},
-                },
-                "confirm_token": token,
-                "expires_in_seconds": self._preview_cache.ttl_seconds,
-            })
+            }
+            preview_data = {
+                "book_id": book_id,
+                "delete_rows": end_row - parent_row,
+                "range": {"start_row": parent_row, "end_row": end_row - 1},
+            }
+            return self.store_preview(
+                op=op,
+                cache_prefix="del",
+                entity_id=book_id,
+                payload=payload,
+                preview_data=preview_data,
+                entity_id_key="book_id",
+            )
 
         # Confirm mode
-        cached = self._preview_cache.pop("del", confirm_token)
-        if not cached:
-            return self._error("books.delete", "CONFIRM_EXPIRED",
-                             "confirm_token が無効または期限切れです")
+        result = self.validate_confirm(
+            op=op,
+            cache_prefix="del",
+            entity_id=book_id,
+            confirm_token=confirm_token,
+            entity_id_key="book_id",
+        )
 
-        if cached["book_id"] != book_id:
-            return self._error("books.delete", "CONFIRM_MISMATCH", "book_id が一致しません")
+        if not result["valid"]:
+            err = result["error"]
+            return self._error(op, err["code"], err["message"])
 
-        del_count = cached["end_row"] - cached["parent_row"]
-        self.sheets.delete_rows(self.file_id, self.sheet_name, cached["parent_row"], del_count)
+        # Execute delete
+        payload = result["payload"]
+        del_count = payload["end_row"] - payload["parent_row"]
+        self.sheets.delete_rows(self.file_id, self.sheet_name, payload["parent_row"], del_count)
 
-        return self._ok("books.delete", {"deleted_rows": del_count})
+        return self._ok(op, {"deleted_rows": del_count})

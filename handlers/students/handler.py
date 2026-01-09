@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import Any, ClassVar
 
 from core.base_handler import BaseHandler
+from core.two_phase_mixin import TwoPhaseOperationMixin
 from sheets_client import SheetsClient
 from config import STUDENTS_MASTER_ID, STUDENTS_SHEET, STUDENT_COLUMNS
 from lib.common import normalize
@@ -30,14 +31,14 @@ class StudentInfo:
     tags: str = ""
 
 
-class StudentsHandler(BaseHandler):
+class StudentsHandler(BaseHandler, TwoPhaseOperationMixin):
     """
     Handler for student-related operations.
 
     Extends BaseHandler with student-specific functionality:
     - Simple fuzzy search (find)
     - Planner sheet ID extraction from links
-    - Two-phase update/delete with preview confirmation
+    - Two-phase update/delete with preview confirmation - via TwoPhaseOperationMixin
     """
 
     DEFAULT_FILE_ID: ClassVar[str] = STUDENTS_MASTER_ID
@@ -343,25 +344,48 @@ class StudentsHandler(BaseHandler):
         Returns:
             Preview response or update confirmation
         """
-        if not student_id:
-            return self._error("students.update", "BAD_REQUEST", "student_id is required")
+        op = "students.update"
 
-        error = self.load_sheet("students.update")
+        if not student_id:
+            return self._error(op, "BAD_REQUEST", "student_id is required")
+
+        error = self.load_sheet(op)
         if error:
             return error
 
         # Find student row
         row_index = self._find_student_row(str(student_id))
         if row_index < 0:
-            return self._error("students.update", "NOT_FOUND",
-                             f"student '{student_id}' not found")
+            return self._error(op, "NOT_FOUND", f"student '{student_id}' not found")
 
         # Preview mode
         if not confirm_token:
-            return self._update_preview(student_id, updates or {}, row_index)
+            payload, preview_data = self._build_update_preview(
+                student_id, updates or {}, row_index
+            )
+            return self.store_preview(
+                op=op,
+                cache_prefix="stu_upd",
+                entity_id=student_id,
+                payload=payload,
+                preview_data=preview_data,
+                entity_id_key="student_id",
+            )
 
         # Confirm mode
-        return self._update_confirm(student_id, confirm_token)
+        result = self.validate_confirm(
+            op=op,
+            cache_prefix="stu_upd",
+            entity_id=student_id,
+            confirm_token=confirm_token,
+            entity_id_key="student_id",
+        )
+
+        if not result["valid"]:
+            err = result["error"]
+            return self._error(op, err["code"], err["message"])
+
+        return self._execute_update(op, result["payload"])
 
     def _find_student_row(self, target_id: str) -> int:
         """Find the 1-based row index for a student."""
@@ -371,13 +395,18 @@ class StudentsHandler(BaseHandler):
                 return i
         return -1
 
-    def _update_preview(
+    def _build_update_preview(
         self,
         student_id: str,
         updates: dict,
         row_index: int,
-    ) -> dict[str, Any]:
-        """Generate update preview."""
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """
+        Build update preview data.
+
+        Returns:
+            Tuple of (payload_for_cache, preview_data_for_response)
+        """
         current_row = self.values[row_index - 1]  # 0-indexed
         diffs = {}
         norm_map = {norm_header(h): i for i, h in enumerate(self.headers)}
@@ -390,32 +419,17 @@ class StudentsHandler(BaseHandler):
                 if str(from_val) != str(to_val):
                     diffs[self.headers[ci]] = {"from": from_val, "to": to_val}
 
-        token = self._preview_cache.store("stu_upd", {
-            "student_id": student_id,
+        payload = {
             "updates": updates,
             "row_index": row_index,
-        })
+        }
+        preview_data = {"diffs": diffs}
+        return payload, preview_data
 
-        return self._ok("students.update", {
-            "requires_confirmation": True,
-            "preview": {"diffs": diffs},
-            "confirm_token": token,
-            "expires_in_seconds": self._preview_cache.ttl_seconds,
-        })
-
-    def _update_confirm(self, student_id: str, confirm_token: str) -> dict[str, Any]:
+    def _execute_update(self, op: str, payload: dict[str, Any]) -> dict[str, Any]:
         """Apply confirmed update."""
-        cached = self._preview_cache.pop("stu_upd", confirm_token)
-        if not cached:
-            return self._error("students.update", "CONFIRM_EXPIRED",
-                             "confirm_token is invalid or expired")
-
-        if str(cached["student_id"]) != str(student_id):
-            return self._error("students.update", "CONFIRM_MISMATCH", "student_id mismatch")
-
-        # Apply updates
-        updates_to_apply = cached["updates"]
-        row_index = cached["row_index"]
+        updates_to_apply = payload["updates"]
+        row_index = payload["row_index"]
         norm_map = {norm_header(h): i for i, h in enumerate(self.headers)}
 
         update_requests = []
@@ -428,7 +442,7 @@ class StudentsHandler(BaseHandler):
         if update_requests:
             self.sheets.batch_update(self.file_id, self.sheet_name, update_requests)
 
-        return self._ok("students.update", {"updated": True})
+        return self._ok(op, {"updated": True})
 
     # === Delete (Two-phase) ===
 
@@ -447,43 +461,47 @@ class StudentsHandler(BaseHandler):
         Returns:
             Preview response or delete confirmation
         """
-        if not student_id:
-            return self._error("students.delete", "BAD_REQUEST", "student_id is required")
+        op = "students.delete"
 
-        error = self.load_sheet("students.delete")
+        if not student_id:
+            return self._error(op, "BAD_REQUEST", "student_id is required")
+
+        error = self.load_sheet(op)
         if error:
             return error
 
         # Find student row
         row_index = self._find_student_row(str(student_id))
         if row_index < 0:
-            return self._error("students.delete", "NOT_FOUND",
-                             f"student '{student_id}' not found")
+            return self._error(op, "NOT_FOUND", f"student '{student_id}' not found")
 
         # Preview mode
         if not confirm_token:
-            token = self._preview_cache.store("stu_del", {
-                "student_id": student_id,
-                "row_index": row_index,
-            })
-
-            return self._ok("students.delete", {
-                "requires_confirmation": True,
-                "preview": {"row": row_index},
-                "confirm_token": token,
-                "expires_in_seconds": self._preview_cache.ttl_seconds,
-            })
+            payload = {"row_index": row_index}
+            preview_data = {"row": row_index}
+            return self.store_preview(
+                op=op,
+                cache_prefix="stu_del",
+                entity_id=student_id,
+                payload=payload,
+                preview_data=preview_data,
+                entity_id_key="student_id",
+            )
 
         # Confirm mode
-        cached = self._preview_cache.pop("stu_del", confirm_token)
-        if not cached:
-            return self._error("students.delete", "CONFIRM_EXPIRED",
-                             "confirm_token is invalid or expired")
+        result = self.validate_confirm(
+            op=op,
+            cache_prefix="stu_del",
+            entity_id=student_id,
+            confirm_token=confirm_token,
+            entity_id_key="student_id",
+        )
 
-        if str(cached["student_id"]) != str(student_id):
-            return self._error("students.delete", "CONFIRM_MISMATCH", "student_id mismatch")
+        if not result["valid"]:
+            err = result["error"]
+            return self._error(op, err["code"], err["message"])
 
-        # Delete row
-        self.sheets.delete_rows(self.file_id, self.sheet_name, cached["row_index"], 1)
+        # Execute delete
+        self.sheets.delete_rows(self.file_id, self.sheet_name, result["payload"]["row_index"], 1)
 
-        return self._ok("students.delete", {"deleted": True})
+        return self._ok(op, {"deleted": True})
