@@ -178,12 +178,19 @@
 - `Procfile`: プロセス定義
 - `scripts/deploy_mcp.sh`: Railway CLIデプロイスクリプト
 
-#### 残タスク
-- Phase 5: E2Eテスト・検証
-  - Railway本番デプロイ
-  - MCP接続テスト
-- Phase 6: 旧インフラ廃止・ドキュメント更新
-  - Claude設定更新
-  - GAS WebAppアーカイブ
+**Phase 5: ドキュメント更新（完了）**
+- README.md: 新アーキテクチャに更新
+- AGENTS.md: 全面改訂（993行 → 346行に簡素化）
+
+#### 残タスク（ユーザー作業）
+- Phase 5-3: Railwayデプロイ
+  1. Railway CLIインストール: `npm install -g @railway/cli`
+  2. ログイン: `railway login`
+  3. プロジェクト作成＆リンク: `cd apps/mcp && railway link`
+  4. 環境変数設定: `railway variables set GOOGLE_CREDENTIALS_JSON="$(cat service-account.json)"`
+  5. デプロイ: `railway up` または `scripts/deploy_mcp.sh`
+  6. MCP接続テスト
+- Phase 6: 旧インフラ廃止
+  - Claude設定更新（MCP URLをRailwayに変更）
+  - GAS WebAppアーカイブ（任意）
   - Cloud Run削除（任意）
-  - README/AGENTS.md更新
