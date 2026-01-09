@@ -16,6 +16,8 @@ from config import (
     STUDENT_COLUMNS,
     WEEKLY_SHEET_NAMES,
     MONTHLY_SHEET_NAME,
+    MONTHPLAN_SHEET_NAME,
+    MONTHPLAN_WEEK_COLUMNS,
     WEEK_METRICS_COLUMNS,
     WEEK_START_CELLS,
     PLANNER_START_ROW,
@@ -670,3 +672,208 @@ class PlannerHandler:
             })
 
         return items
+
+    # === Monthplan Operations ===
+
+    def _resolve_monthplan_sheet(
+        self,
+        student_id: str | None,
+        spreadsheet_id: str | None,
+        op_name: str,
+    ) -> tuple[str | None, str | None, dict | None]:
+        """
+        Resolve the monthplan sheet.
+
+        Returns:
+            (file_id, sheet_name, error) - error is None on success
+        """
+        resolved_id = self._resolve_spreadsheet_id(student_id, spreadsheet_id)
+        if not resolved_id:
+            return None, None, ng(op_name, "NOT_FOUND", "monthplan sheet not found")
+
+        try:
+            ss = self.sheets.open_by_id(resolved_id)
+            ss.worksheet(MONTHPLAN_SHEET_NAME)
+            return resolved_id, MONTHPLAN_SHEET_NAME, None
+        except Exception:
+            return None, None, ng(op_name, "NOT_FOUND", f"sheet '{MONTHPLAN_SHEET_NAME}' not found")
+
+    def monthplan_get(
+        self,
+        student_id: str | None = None,
+        spreadsheet_id: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Get the content of 「今月プラン」 sheet with summary statistics.
+
+        Args:
+            student_id: Student ID to resolve spreadsheet
+            spreadsheet_id: Direct spreadsheet ID
+
+        Returns:
+            {
+                "items": [
+                    {
+                        "row": 4,
+                        "book_id": "gMA001",
+                        "subject": "数学",
+                        "title": "青チャート",
+                        "weeks": {1: 3, 2: 2, 3: 4, 4: 3, 5: 2},
+                        "row_total": 14
+                    },
+                    ...
+                ],
+                "week_totals": {1: 15, 2: 12, ...},
+                "grand_total": 69,
+                "count": 5
+            }
+        """
+        op = "planner.monthplan.get"
+
+        fid, sname, error = self._resolve_monthplan_sheet(student_id, spreadsheet_id, op)
+        if error:
+            return error
+
+        try:
+            # Read A4:H30
+            data = self.sheets.get_range(fid, sname, "A4:H30")
+        except Exception as e:
+            return ng(op, "ERROR", str(e))
+
+        items = []
+        week_totals: dict[int, int] = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
+        grand_total = 0
+
+        for i, row in enumerate(data):
+            r = PLANNER_START_ROW + i
+
+            # A column: book_id
+            book_id = str(row[0]).strip() if len(row) > 0 else ""
+            if not book_id:
+                break  # Stop at first empty book_id
+
+            # B column: subject
+            subject = str(row[1]).strip() if len(row) > 1 else ""
+
+            # C column: title
+            title = str(row[2]).strip() if len(row) > 2 else ""
+
+            # D-H columns: weekly hours
+            weeks: dict[int, int] = {}
+            row_total = 0
+            for week_idx in range(1, 6):
+                col_idx = 2 + week_idx  # D=3, E=4, F=5, G=6, H=7
+                raw_val = row[col_idx] if len(row) > col_idx else ""
+                hours = self._parse_hours(raw_val)
+                weeks[week_idx] = hours
+                row_total += hours
+                week_totals[week_idx] += hours
+
+            grand_total += row_total
+
+            items.append({
+                "row": r,
+                "book_id": book_id,
+                "subject": subject,
+                "title": title,
+                "weeks": weeks,
+                "row_total": row_total,
+            })
+
+        return ok(op, {
+            "items": items,
+            "week_totals": week_totals,
+            "grand_total": grand_total,
+            "count": len(items),
+        })
+
+    def _parse_hours(self, raw: Any) -> int:
+        """Parse hours value, returning 0 for empty/invalid values."""
+        if raw is None or raw == "":
+            return 0
+        try:
+            return int(str(raw).strip())
+        except (ValueError, TypeError):
+            return 0
+
+    def monthplan_set(
+        self,
+        items: list[dict],
+        student_id: str | None = None,
+        spreadsheet_id: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Batch write weekly hours to 「今月プラン」 sheet.
+
+        Args:
+            items: List of {"row": int, "week": int (1-5), "hours": int}
+            student_id: Student ID to resolve spreadsheet
+            spreadsheet_id: Direct spreadsheet ID
+
+        Returns:
+            {"updated": True, "results": [{row, week, ok, error?}, ...]}
+        """
+        op = "planner.monthplan.set"
+
+        if not items:
+            return ng(op, "BAD_REQUEST", "items must not be empty")
+
+        fid, sname, error = self._resolve_monthplan_sheet(student_id, spreadsheet_id, op)
+        if error:
+            return error
+
+        results = []
+
+        for item in items:
+            row = item.get("row")
+            week = item.get("week")
+            hours = item.get("hours")
+
+            # Validate row
+            if row is None or row < PLANNER_START_ROW or row > PLANNER_END_ROW:
+                results.append({
+                    "row": row,
+                    "week": week,
+                    "ok": False,
+                    "error": {"code": "BAD_ROW", "message": f"row must be {PLANNER_START_ROW}..{PLANNER_END_ROW}"},
+                })
+                continue
+
+            # Validate week
+            if week is None or week < 1 or week > 5:
+                results.append({
+                    "row": row,
+                    "week": week,
+                    "ok": False,
+                    "error": {"code": "BAD_WEEK", "message": "week must be 1..5"},
+                })
+                continue
+
+            # Validate hours
+            try:
+                hours_int = int(hours)
+            except (ValueError, TypeError):
+                results.append({
+                    "row": row,
+                    "week": week,
+                    "ok": False,
+                    "error": {"code": "BAD_HOURS", "message": "hours must be an integer"},
+                })
+                continue
+
+            # Get column letter for this week
+            col = MONTHPLAN_WEEK_COLUMNS[week]
+            cell_a1 = f"{col}{row}"
+
+            try:
+                self.sheets.update_cell(fid, sname, cell_a1, hours_int)
+                results.append({"row": row, "week": week, "ok": True, "cell": cell_a1})
+            except Exception as e:
+                results.append({
+                    "row": row,
+                    "week": week,
+                    "ok": False,
+                    "error": {"code": "ERROR", "message": str(e)},
+                })
+
+        return ok(op, {"updated": True, "results": results})

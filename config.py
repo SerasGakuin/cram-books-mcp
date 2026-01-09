@@ -115,6 +115,10 @@ STUDENT_COLUMNS: Final[dict[str, list[str]]] = {
 # Planner sheet name variants (for flexible lookup)
 WEEKLY_SHEET_NAMES = ["週間管理", "週間計画", "週刊計画", "週刊管理"]
 MONTHLY_SHEET_NAME = "月間管理"
+MONTHPLAN_SHEET_NAME = "今月プラン"
+
+# Monthplan week columns (1-indexed week -> column letter for hours)
+MONTHPLAN_WEEK_COLUMNS = {1: "D", 2: "E", 3: "F", 4: "G", 5: "H"}
 
 # Status values for filtering active students
 ACTIVE_STATUS_VALUES = ["在塾", "在籍", "active", "Active"]

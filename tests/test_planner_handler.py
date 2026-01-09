@@ -380,3 +380,218 @@ class TestPlannerHandlerBookCodeParsing:
 
         assert result["month_code"] is None
         assert result["book_id"] == "gMA001"
+
+
+class TestPlannerHandlerMonthplanGet:
+    """Tests for monthplan_get method."""
+
+    def test_monthplan_get_returns_items_with_weeks(self):
+        """Should return items with weekly hours and totals."""
+        from handlers.planner import PlannerHandler
+
+        mock_sheets = MagicMock()
+        mock_ss = MagicMock()
+        mock_sheets.open_by_id.return_value = mock_ss
+        mock_ss.worksheet.return_value = MagicMock()
+        # A4:H30 data: ID, subject, title, W1, W2, W3, W4, W5
+        mock_sheets.get_range.return_value = [
+            ["gMA001", "数学", "青チャート", "3", "2", "4", "3", "2"],
+            ["gEN001", "英語", "長文読解", "2", "3", "2", "2", "1"],
+        ]
+
+        handler = PlannerHandler(mock_sheets)
+        result = handler.monthplan_get(spreadsheet_id="test-id")
+
+        assert result["ok"] is True
+        data = result["data"]
+        assert data["count"] == 2
+
+        # Check first item
+        item1 = data["items"][0]
+        assert item1["row"] == 4
+        assert item1["book_id"] == "gMA001"
+        assert item1["subject"] == "数学"
+        assert item1["title"] == "青チャート"
+        assert item1["weeks"] == {1: 3, 2: 2, 3: 4, 4: 3, 5: 2}
+        assert item1["row_total"] == 14
+
+        # Check week totals
+        assert data["week_totals"] == {1: 5, 2: 5, 3: 6, 4: 5, 5: 3}
+        assert data["grand_total"] == 24
+
+    def test_monthplan_get_handles_empty_hours(self):
+        """Should treat empty cells as 0 hours."""
+        from handlers.planner import PlannerHandler
+
+        mock_sheets = MagicMock()
+        mock_ss = MagicMock()
+        mock_sheets.open_by_id.return_value = mock_ss
+        mock_ss.worksheet.return_value = MagicMock()
+        mock_sheets.get_range.return_value = [
+            ["gMA001", "数学", "青チャート", "", "2", "", "3", ""],
+        ]
+
+        handler = PlannerHandler(mock_sheets)
+        result = handler.monthplan_get(spreadsheet_id="test-id")
+
+        assert result["ok"] is True
+        item = result["data"]["items"][0]
+        assert item["weeks"] == {1: 0, 2: 2, 3: 0, 4: 3, 5: 0}
+        assert item["row_total"] == 5
+
+    def test_monthplan_get_stops_at_empty_id(self):
+        """Should stop reading at first empty book_id."""
+        from handlers.planner import PlannerHandler
+
+        mock_sheets = MagicMock()
+        mock_ss = MagicMock()
+        mock_sheets.open_by_id.return_value = mock_ss
+        mock_ss.worksheet.return_value = MagicMock()
+        mock_sheets.get_range.return_value = [
+            ["gMA001", "数学", "青チャート", "3", "2", "4", "3", "2"],
+            ["", "", "", "", "", "", "", ""],  # Empty row
+            ["gEN001", "英語", "長文読解", "2", "3", "2", "2", "1"],  # Should be ignored
+        ]
+
+        handler = PlannerHandler(mock_sheets)
+        result = handler.monthplan_get(spreadsheet_id="test-id")
+
+        assert result["ok"] is True
+        assert result["data"]["count"] == 1
+
+    def test_monthplan_get_requires_spreadsheet(self):
+        """Should return error when spreadsheet not found."""
+        from handlers.planner import PlannerHandler
+
+        mock_sheets = MagicMock()
+        mock_sheets.get_all_values.return_value = [["生徒ID"], ["s001"]]
+
+        handler = PlannerHandler(mock_sheets)
+        result = handler.monthplan_get(student_id="s999")
+
+        assert result["ok"] is False
+        assert result["error"]["code"] == "NOT_FOUND"
+
+
+class TestPlannerHandlerMonthplanSet:
+    """Tests for monthplan_set method."""
+
+    def test_monthplan_set_batch_write(self):
+        """Should batch write hours to multiple cells."""
+        from handlers.planner import PlannerHandler
+
+        mock_sheets = MagicMock()
+        mock_ss = MagicMock()
+        mock_sheets.open_by_id.return_value = mock_ss
+        mock_ss.worksheet.return_value = MagicMock()
+
+        handler = PlannerHandler(mock_sheets)
+        result = handler.monthplan_set(
+            items=[
+                {"row": 4, "week": 1, "hours": 3},
+                {"row": 4, "week": 2, "hours": 2},
+                {"row": 5, "week": 1, "hours": 5},
+            ],
+            spreadsheet_id="test-id"
+        )
+
+        assert result["ok"] is True
+        assert result["data"]["updated"] is True
+        assert len(result["data"]["results"]) == 3
+
+        # Check that update_cell was called for each item
+        assert mock_sheets.update_cell.call_count == 3
+
+    def test_monthplan_set_validates_week_range(self):
+        """Should reject invalid week index."""
+        from handlers.planner import PlannerHandler
+
+        mock_sheets = MagicMock()
+        mock_ss = MagicMock()
+        mock_sheets.open_by_id.return_value = mock_ss
+        mock_ss.worksheet.return_value = MagicMock()
+
+        handler = PlannerHandler(mock_sheets)
+        result = handler.monthplan_set(
+            items=[
+                {"row": 4, "week": 6, "hours": 3},  # Invalid week
+            ],
+            spreadsheet_id="test-id"
+        )
+
+        assert result["ok"] is True  # Overall OK but individual item failed
+        assert result["data"]["results"][0]["ok"] is False
+        assert result["data"]["results"][0]["error"]["code"] == "BAD_WEEK"
+
+    def test_monthplan_set_validates_row_range(self):
+        """Should reject row outside valid range (4-30)."""
+        from handlers.planner import PlannerHandler
+
+        mock_sheets = MagicMock()
+        mock_ss = MagicMock()
+        mock_sheets.open_by_id.return_value = mock_ss
+        mock_ss.worksheet.return_value = MagicMock()
+
+        handler = PlannerHandler(mock_sheets)
+        result = handler.monthplan_set(
+            items=[
+                {"row": 2, "week": 1, "hours": 3},  # Row too small
+            ],
+            spreadsheet_id="test-id"
+        )
+
+        assert result["ok"] is True
+        assert result["data"]["results"][0]["ok"] is False
+        assert result["data"]["results"][0]["error"]["code"] == "BAD_ROW"
+
+    def test_monthplan_set_validates_hours_is_integer(self):
+        """Should reject non-integer hours."""
+        from handlers.planner import PlannerHandler
+
+        mock_sheets = MagicMock()
+        mock_ss = MagicMock()
+        mock_sheets.open_by_id.return_value = mock_ss
+        mock_ss.worksheet.return_value = MagicMock()
+
+        handler = PlannerHandler(mock_sheets)
+        result = handler.monthplan_set(
+            items=[
+                {"row": 4, "week": 1, "hours": "abc"},  # Invalid hours
+            ],
+            spreadsheet_id="test-id"
+        )
+
+        assert result["ok"] is True
+        assert result["data"]["results"][0]["ok"] is False
+        assert result["data"]["results"][0]["error"]["code"] == "BAD_HOURS"
+
+    def test_monthplan_set_requires_items(self):
+        """Should return error when items is empty."""
+        from handlers.planner import PlannerHandler
+
+        mock_sheets = MagicMock()
+        mock_ss = MagicMock()
+        mock_sheets.open_by_id.return_value = mock_ss
+        mock_ss.worksheet.return_value = MagicMock()
+
+        handler = PlannerHandler(mock_sheets)
+        result = handler.monthplan_set(items=[], spreadsheet_id="test-id")
+
+        assert result["ok"] is False
+        assert result["error"]["code"] == "BAD_REQUEST"
+
+    def test_monthplan_set_requires_spreadsheet(self):
+        """Should return error when spreadsheet not found."""
+        from handlers.planner import PlannerHandler
+
+        mock_sheets = MagicMock()
+        mock_sheets.get_all_values.return_value = [["生徒ID"], ["s001"]]
+
+        handler = PlannerHandler(mock_sheets)
+        result = handler.monthplan_set(
+            items=[{"row": 4, "week": 1, "hours": 3}],
+            student_id="s999"
+        )
+
+        assert result["ok"] is False
+        assert result["error"]["code"] == "NOT_FOUND"

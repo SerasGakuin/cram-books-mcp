@@ -17,6 +17,8 @@ from server import (
     planner_plan_create,
     planner_monthly_filter,
     planner_guidance,
+    monthplan_get,
+    monthplan_set,
 )
 
 
@@ -252,3 +254,106 @@ class TestPlannerGuidance:
         result = await planner_guidance()
         assert result is not None
         assert result.get("ok") is True
+
+
+class TestMonthplanGet:
+    """Tests for monthplan_get tool"""
+
+    @pytest.mark.asyncio
+    async def test_get_monthplan_with_spreadsheet_id(self, mock_sheets_client):
+        """Should get monthplan data with spreadsheet_id"""
+        response = {
+            "ok": True,
+            "op": "planner.monthplan.get",
+            "data": {
+                "items": [
+                    {
+                        "row": 4,
+                        "book_id": "gMA001",
+                        "subject": "数学",
+                        "title": "青チャート",
+                        "weeks": {1: 3, 2: 2, 3: 4, 4: 3, 5: 2},
+                        "row_total": 14,
+                    }
+                ],
+                "week_totals": {1: 3, 2: 2, 3: 4, 4: 3, 5: 2},
+                "grand_total": 14,
+                "count": 1,
+            }
+        }
+        mock_handler = MagicMock()
+        mock_handler.monthplan_get.return_value = response
+        with patch("server.get_sheets_client", return_value=mock_sheets_client), \
+             patch("server.PlannerHandler", return_value=mock_handler):
+            result = await monthplan_get(spreadsheet_id="test-sheet-id")
+            assert result.get("ok") is True
+            data = result.get("data", {})
+            assert "items" in data
+            assert "week_totals" in data
+            assert "grand_total" in data
+
+    @pytest.mark.asyncio
+    async def test_get_monthplan_with_student_id(self, mock_sheets_client):
+        """Should get monthplan data with student_id"""
+        response = {
+            "ok": True,
+            "op": "planner.monthplan.get",
+            "data": {"items": [], "week_totals": {}, "grand_total": 0, "count": 0}
+        }
+        mock_handler = MagicMock()
+        mock_handler.monthplan_get.return_value = response
+        with patch("server.get_sheets_client", return_value=mock_sheets_client), \
+             patch("server.PlannerHandler", return_value=mock_handler):
+            result = await monthplan_get(student_id="S001")
+            assert result.get("ok") is True
+
+    @pytest.mark.asyncio
+    async def test_get_monthplan_requires_identifier(self):
+        """Should require student_id or spreadsheet_id"""
+        result = await monthplan_get()
+        assert result.get("ok") is False
+        assert "error" in result
+
+
+class TestMonthplanSet:
+    """Tests for monthplan_set tool"""
+
+    @pytest.mark.asyncio
+    async def test_set_monthplan(self, mock_sheets_client):
+        """Should set monthplan hours"""
+        response = {
+            "ok": True,
+            "op": "planner.monthplan.set",
+            "data": {
+                "updated": True,
+                "results": [
+                    {"row": 4, "week": 1, "ok": True, "cell": "D4"},
+                    {"row": 4, "week": 2, "ok": True, "cell": "E4"},
+                ]
+            }
+        }
+        mock_handler = MagicMock()
+        mock_handler.monthplan_set.return_value = response
+        with patch("server.get_sheets_client", return_value=mock_sheets_client), \
+             patch("server.PlannerHandler", return_value=mock_handler):
+            items = [
+                {"row": 4, "week": 1, "hours": 3},
+                {"row": 4, "week": 2, "hours": 2},
+            ]
+            result = await monthplan_set(items=items, spreadsheet_id="test-sheet-id")
+            assert result.get("ok") is True
+            assert result.get("data", {}).get("updated") is True
+
+    @pytest.mark.asyncio
+    async def test_set_monthplan_requires_identifier(self):
+        """Should require student_id or spreadsheet_id"""
+        result = await monthplan_set(items=[{"row": 4, "week": 1, "hours": 3}])
+        assert result.get("ok") is False
+        assert "error" in result
+
+    @pytest.mark.asyncio
+    async def test_set_monthplan_requires_items_list(self):
+        """Should require items to be a list"""
+        result = await monthplan_set(items="invalid", spreadsheet_id="test-sheet-id")
+        assert result.get("ok") is False
+        assert "error" in result
