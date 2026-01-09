@@ -10,8 +10,10 @@ from typing import Any
 
 try:
     from mcp.server.fastmcp import FastMCP
+    from mcp.server.transport_security import TransportSecuritySettings
 except ImportError:
     from fastmcp import FastMCP
+    TransportSecuritySettings = None
 
 # Import handlers (direct Google Sheets API access)
 from sheets_client import get_sheets_client
@@ -20,7 +22,19 @@ from handlers import students as students_handler
 from handlers import planner as planner_handler
 from handlers import planner_monthly as planner_monthly_handler
 
-mcp = FastMCP("cram-books")
+# Configure transport security to allow Railway domain
+transport_security = None
+if TransportSecuritySettings:
+    transport_security = TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=[
+            "localhost:8080",
+            "127.0.0.1:8080",
+            "cram-books-mcp-production.up.railway.app",
+        ],
+    )
+
+mcp = FastMCP("cram-books", transport_security=transport_security)
 
 
 def log(*a):
@@ -659,11 +673,10 @@ async def tools_help() -> dict:
 
 if __name__ == "__main__":
     import uvicorn
+    from contextlib import asynccontextmanager
     from starlette.applications import Starlette
     from starlette.routing import Route
     from starlette.responses import JSONResponse
-
-    base_app = mcp.streamable_http_app()
 
     async def healthz(request):
         return JSONResponse({"status": "ok"})
@@ -674,22 +687,31 @@ if __name__ == "__main__":
             status_code=406,
         )
 
-    # Combine routes
-    app = Starlette(
+    # Get MCP ASGI app
+    mcp_app = mcp.streamable_http_app()
+
+    @asynccontextmanager
+    async def lifespan(app):
+        async with mcp.session_manager.run():
+            yield
+
+    # Create Starlette app for non-MCP routes
+    starlette_app = Starlette(
         routes=[
             Route("/", root),
             Route("/healthz", healthz),
         ],
+        lifespan=lifespan,
     )
 
-    # Mount MCP app
+    # Combined ASGI app - MCP app handles /mcp path internally
     async def combined_app(scope, receive, send):
         path = scope.get("path", "/")
         if path.startswith("/mcp"):
-            await base_app(scope, receive, send)
+            await mcp_app(scope, receive, send)
         else:
-            await app(scope, receive, send)
+            await starlette_app(scope, receive, send)
 
     port = int(os.getenv("PORT", "8080"))
     log(f"Starting server on port {port}")
-    uvicorn.run(combined_app, host="0.0.0.0", port=port)
+    uvicorn.run(combined_app, host="0.0.0.0", port=port, lifespan="on")
