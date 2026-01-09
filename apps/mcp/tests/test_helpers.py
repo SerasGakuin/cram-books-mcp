@@ -10,11 +10,9 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from lib.common import normalize, to_number_or_none, ok, ng
-from lib.sheet_utils import norm_header, pick_col, tokenize, parse_monthly_goal, col_letter_to_index
+from lib.sheet_utils import norm_header, pick_col, tokenize, parse_monthly_goal, col_letter_to_index, extract_spreadsheet_id
 from lib.id_rules import decide_prefix, next_id_for_prefix, extract_ids_from_values
-
-# Also test server-level helpers
-from server import _strip_quotes, _coerce_str, _as_list
+from lib.input_parser import strip_quotes as _strip_quotes, coerce_str as _coerce_str, as_list as _as_list
 
 
 class TestStripQuotes:
@@ -380,3 +378,53 @@ class TestExtractIdsFromValues:
         # Accessing column 1 which doesn't exist
         result = extract_ids_from_values(values, 1)
         assert result == []
+
+
+class TestExtractSpreadsheetId:
+    """Tests for extract_spreadsheet_id function"""
+
+    def test_extracts_from_full_url(self):
+        url = "https://docs.google.com/spreadsheets/d/1abc-XYZ_123456789012345678901234567890/edit#gid=0"
+        result = extract_spreadsheet_id(url)
+        assert result == "1abc-XYZ_123456789012345678901234567890"
+
+    def test_extracts_from_short_url(self):
+        url = "https://docs.google.com/spreadsheets/d/1abcdefghijklmnopqrstuvwxyz/edit"
+        result = extract_spreadsheet_id(url)
+        assert result == "1abcdefghijklmnopqrstuvwxyz"
+
+    def test_extracts_from_url_with_query_params(self):
+        url = "https://docs.google.com/spreadsheets/d/1test123456789abcdefghijk/edit?usp=sharing"
+        result = extract_spreadsheet_id(url)
+        assert result == "1test123456789abcdefghijk"
+
+    def test_returns_none_for_invalid_url(self):
+        url = "https://example.com/not-a-spreadsheet"
+        result = extract_spreadsheet_id(url)
+        assert result is None
+
+    def test_returns_none_for_short_id(self):
+        # IDs must be at least 25 characters
+        url = "https://docs.google.com/spreadsheets/d/short/edit"
+        result = extract_spreadsheet_id(url)
+        assert result is None
+
+    def test_returns_none_for_empty_string(self):
+        result = extract_spreadsheet_id("")
+        assert result is None
+
+    def test_returns_none_for_none(self):
+        result = extract_spreadsheet_id(None)  # type: ignore
+        assert result is None
+
+    def test_extracts_raw_id_string(self):
+        # If given just an ID string (not a URL), should still work
+        raw_id = "1abcdefghijklmnopqrstuvwxyz12345"
+        result = extract_spreadsheet_id(raw_id)
+        assert result == raw_id
+
+    def test_handles_hyphen_and_underscore(self):
+        # Real IDs contain hyphens and underscores
+        url = "https://docs.google.com/spreadsheets/d/1abc-XYZ_123-456_789-abc_def/edit"
+        result = extract_spreadsheet_id(url)
+        assert result == "1abc-XYZ_123-456_789-abc_def"

@@ -146,3 +146,19 @@ def index_to_col_letter(index: int) -> str:
         index, remainder = divmod(index - 1, 26)
         result = chr(ord("A") + remainder) + result
     return result
+
+
+def extract_spreadsheet_id(url: Any) -> str | None:
+    """
+    Extract spreadsheet ID from a Google Sheets URL or raw ID string.
+
+    Args:
+        url: A Google Sheets URL or raw spreadsheet ID
+
+    Returns:
+        The spreadsheet ID if found (at least 25 chars), None otherwise
+    """
+    if not url:
+        return None
+    match = re.search(r"[-\w]{25,}", str(url))
+    return match.group(0) if match else None

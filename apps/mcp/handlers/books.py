@@ -5,7 +5,6 @@ Ported from apps/gas/src/handlers/books.ts
 Implements IDF-weighted search, chapter parsing, and CRUD operations.
 """
 import math
-import uuid
 import re
 from collections import defaultdict
 from typing import Any
@@ -15,6 +14,7 @@ from config import BOOKS_MASTER_ID, BOOKS_SHEET, BOOK_COLUMNS
 from lib.common import ok, ng, normalize, to_number_or_none
 from lib.sheet_utils import pick_col, norm_header, tokenize, parse_monthly_goal
 from lib.id_rules import decide_prefix, next_id_for_prefix, extract_ids_from_values
+from lib.preview_cache import PreviewCache
 
 
 # Type definitions
@@ -554,8 +554,8 @@ def books_list(
     return ok("books.list", {"books": books, "count": len(books)})
 
 
-# In-memory cache for confirm tokens
-_PREVIEW_CACHE: dict[str, dict] = {}
+# Shared preview cache for update/delete operations
+_preview_cache = PreviewCache()
 
 
 def books_create(
@@ -715,18 +715,22 @@ def books_update(
             next_child_rows = max(0, len(updates["chapters"]) - 1)
             chapters_preview = {"from_count": existing_child_rows, "to_count": next_child_rows}
 
-        token = str(uuid.uuid4())
-        _PREVIEW_CACHE[f"upd:{token}"] = {"book_id": book_id, "updates": updates, "parent_row": parent_row, "end_row": end_row}
+        token = _preview_cache.store("upd", {
+            "book_id": book_id,
+            "updates": updates,
+            "parent_row": parent_row,
+            "end_row": end_row,
+        })
 
         return ok("books.update", {
             "requires_confirmation": True,
             "preview": {"book_id": book_id, "meta_changes": meta_changes, "chapters": chapters_preview},
             "confirm_token": token,
-            "expires_in_seconds": 300,
+            "expires_in_seconds": _preview_cache.ttl_seconds,
         })
 
     # Confirm mode
-    cached = _PREVIEW_CACHE.pop(f"upd:{confirm_token}", None)
+    cached = _preview_cache.pop("upd", confirm_token)
     if not cached:
         return ng("books.update", "CONFIRM_EXPIRED", "confirm_token が無効または期限切れです")
 
@@ -801,8 +805,11 @@ def books_delete(
 
     # Preview mode
     if not confirm_token:
-        token = str(uuid.uuid4())
-        _PREVIEW_CACHE[f"del:{token}"] = {"book_id": book_id, "parent_row": parent_row, "end_row": end_row}
+        token = _preview_cache.store("del", {
+            "book_id": book_id,
+            "parent_row": parent_row,
+            "end_row": end_row,
+        })
 
         return ok("books.delete", {
             "requires_confirmation": True,
@@ -812,11 +819,11 @@ def books_delete(
                 "range": {"start_row": parent_row, "end_row": end_row - 1},
             },
             "confirm_token": token,
-            "expires_in_seconds": 300,
+            "expires_in_seconds": _preview_cache.ttl_seconds,
         })
 
     # Confirm mode
-    cached = _PREVIEW_CACHE.pop(f"del:{confirm_token}", None)
+    cached = _preview_cache.pop("del", confirm_token)
     if not cached:
         return ng("books.delete", "CONFIRM_EXPIRED", "confirm_token が無効または期限切れです")
 

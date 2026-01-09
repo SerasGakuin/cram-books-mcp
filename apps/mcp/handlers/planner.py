@@ -5,7 +5,7 @@ Ported from apps/gas/src/handlers/planner.ts
 Provides reading and writing operations for weekly planner sheets.
 """
 import re
-from typing import Any
+from typing import Any, NamedTuple
 
 from sheets_client import SheetsClient
 from config import (
@@ -20,13 +20,7 @@ from config import (
     PLAN_TEXT_MAX_LENGTH,
 )
 from lib.common import ok, ng, to_number_or_none
-from lib.sheet_utils import pick_col, norm_header
-
-
-def _extract_spreadsheet_id_from_url(url: str) -> str | None:
-    """Extract spreadsheet ID from Google Sheets URL."""
-    match = re.search(r"[-\w]{25,}", str(url))
-    return match.group(0) if match else None
+from lib.sheet_utils import pick_col, norm_header, extract_spreadsheet_id
 
 
 def resolve_planner_sheet_id(
@@ -81,7 +75,7 @@ def resolve_planner_sheet_id(
             # Try link column
             if idx_link >= 0 and idx_link < len(row):
                 link = str(row[idx_link]).strip()
-                extracted = _extract_spreadsheet_id_from_url(link)
+                extracted = extract_spreadsheet_id(link)
                 if extracted:
                     return extracted
 
@@ -123,6 +117,52 @@ def _open_planner_sheet(sheets: SheetsClient, spreadsheet_id: str) -> tuple[str,
         return None
 
 
+class PlannerSheetResult(NamedTuple):
+    """Result of resolving and opening a planner sheet."""
+
+    file_id: str | None
+    sheet_name: str | None
+    error: dict | None
+
+
+def resolve_and_open_planner(
+    sheets: SheetsClient,
+    op_name: str,
+    student_id: str | None = None,
+    spreadsheet_id: str | None = None,
+) -> PlannerSheetResult:
+    """
+    Resolve and open a planner sheet in one step.
+
+    Args:
+        sheets: SheetsClient instance
+        op_name: Operation name for error messages (e.g., "planner.ids_list")
+        student_id: Optional student ID to resolve
+        spreadsheet_id: Optional direct spreadsheet ID
+
+    Returns:
+        PlannerSheetResult with (file_id, sheet_name, None) on success,
+        or (None, None, error_dict) on failure.
+    """
+    resolved_id = resolve_planner_sheet_id(sheets, student_id, spreadsheet_id)
+    if not resolved_id:
+        return PlannerSheetResult(
+            None,
+            None,
+            ng(op_name, "NOT_FOUND", "planner sheet not found (resolve by student_id or spreadsheet_id)"),
+        )
+
+    sheet_info = _open_planner_sheet(sheets, resolved_id)
+    if not sheet_info:
+        return PlannerSheetResult(
+            None,
+            None,
+            ng(op_name, "NOT_FOUND", "planner sheet not found"),
+        )
+
+    return PlannerSheetResult(sheet_info[0], sheet_info[1], None)
+
+
 def _parse_book_code(raw: str) -> dict:
     """Parse A column code like '261gEC001' into month_code and book_id."""
     s = str(raw or "").strip()
@@ -153,15 +193,11 @@ def planner_ids_list(
 
     Returns raw codes, book IDs, subjects, titles, and guideline notes.
     """
-    resolved_id = resolve_planner_sheet_id(sheets, student_id, spreadsheet_id)
-    if not resolved_id:
-        return ng("planner.ids_list", "NOT_FOUND", "planner sheet not found (resolve by student_id or spreadsheet_id)")
+    result = resolve_and_open_planner(sheets, "planner.ids_list", student_id, spreadsheet_id)
+    if result.error:
+        return result.error
 
-    sheet_info = _open_planner_sheet(sheets, resolved_id)
-    if not sheet_info:
-        return ng("planner.ids_list", "NOT_FOUND", "planner sheet not found")
-
-    fid, sname = sheet_info
+    fid, sname = result.file_id, result.sheet_name
 
     try:
         abcd = _read_abcd(sheets, fid, sname)
@@ -199,15 +235,11 @@ def planner_dates_get(
     spreadsheet_id: str | None = None,
 ) -> dict:
     """Get week start dates (D1/L1/T1/AB1/AJ1)."""
-    resolved_id = resolve_planner_sheet_id(sheets, student_id, spreadsheet_id)
-    if not resolved_id:
-        return ng("planner.dates.get", "NOT_FOUND", "planner sheet not found")
+    result = resolve_and_open_planner(sheets, "planner.dates.get", student_id, spreadsheet_id)
+    if result.error:
+        return result.error
 
-    sheet_info = _open_planner_sheet(sheets, resolved_id)
-    if not sheet_info:
-        return ng("planner.dates.get", "NOT_FOUND", "planner sheet not found")
-
-    fid, sname = sheet_info
+    fid, sname = result.file_id, result.sheet_name
 
     try:
         week_starts = []
@@ -230,15 +262,11 @@ def planner_dates_set(
     if not start_date:
         return ng("planner.dates.set", "BAD_REQUEST", "start_date is required (YYYY-MM-DD)")
 
-    resolved_id = resolve_planner_sheet_id(sheets, student_id, spreadsheet_id)
-    if not resolved_id:
-        return ng("planner.dates.set", "NOT_FOUND", "planner sheet not found")
+    result = resolve_and_open_planner(sheets, "planner.dates.set", student_id, spreadsheet_id)
+    if result.error:
+        return result.error
 
-    sheet_info = _open_planner_sheet(sheets, resolved_id)
-    if not sheet_info:
-        return ng("planner.dates.set", "NOT_FOUND", "planner sheet not found")
-
-    fid, sname = sheet_info
+    fid, sname = result.file_id, result.sheet_name
 
     try:
         sheets.update_cell(fid, sname, "D1", start_date)
@@ -255,15 +283,11 @@ def planner_metrics_get(
     """
     Get metrics for each week (weekly_minutes, unit_load, guideline_amount).
     """
-    resolved_id = resolve_planner_sheet_id(sheets, student_id, spreadsheet_id)
-    if not resolved_id:
-        return ng("planner.metrics.get", "NOT_FOUND", "planner sheet not found")
+    result = resolve_and_open_planner(sheets, "planner.metrics.get", student_id, spreadsheet_id)
+    if result.error:
+        return result.error
 
-    sheet_info = _open_planner_sheet(sheets, resolved_id)
-    if not sheet_info:
-        return ng("planner.metrics.get", "NOT_FOUND", "planner sheet not found")
-
-    fid, sname = sheet_info
+    fid, sname = result.file_id, result.sheet_name
 
     try:
         weeks = []
@@ -303,15 +327,11 @@ def planner_plan_get(
     """
     Get plan text for each week (H/P/X/AF/AN columns).
     """
-    resolved_id = resolve_planner_sheet_id(sheets, student_id, spreadsheet_id)
-    if not resolved_id:
-        return ng("planner.plan.get", "NOT_FOUND", "planner sheet not found")
+    result = resolve_and_open_planner(sheets, "planner.plan.get", student_id, spreadsheet_id)
+    if result.error:
+        return result.error
 
-    sheet_info = _open_planner_sheet(sheets, resolved_id)
-    if not sheet_info:
-        return ng("planner.plan.get", "NOT_FOUND", "planner sheet not found")
-
-    fid, sname = sheet_info
+    fid, sname = result.file_id, result.sheet_name
 
     try:
         weeks = []
@@ -355,15 +375,11 @@ def planner_plan_set(
 
     Can operate in single mode (week_index + row/book_id) or batch mode (items).
     """
-    resolved_id = resolve_planner_sheet_id(sheets, student_id, spreadsheet_id)
-    if not resolved_id:
-        return ng("planner.plan.set", "NOT_FOUND", "planner sheet not found")
+    result = resolve_and_open_planner(sheets, "planner.plan.set", student_id, spreadsheet_id)
+    if result.error:
+        return result.error
 
-    sheet_info = _open_planner_sheet(sheets, resolved_id)
-    if not sheet_info:
-        return ng("planner.plan.set", "NOT_FOUND", "planner sheet not found")
-
-    fid, sname = sheet_info
+    fid, sname = result.file_id, result.sheet_name
 
     # Read ABCD for book_id resolution
     try:

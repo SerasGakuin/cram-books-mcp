@@ -194,3 +194,51 @@
   - Claude設定更新（MCP URLをRailwayに変更）
   - GAS WebAppアーカイブ（任意）
   - Cloud Run削除（任意）
+
+### refactor: Phase 1 コード構造改善
+
+#### 重複コードの統合
+
+**A. スプレッドシートID抽出の統一**
+- `lib/sheet_utils.py`に`extract_spreadsheet_id()`関数を追加
+- `handlers/students.py`と`handlers/planner.py`の重複関数を削除
+- 9件の新規テスト追加（`test_helpers.py::TestExtractSpreadsheetId`）
+
+**B. Planner解決パターンの抽出**
+- `handlers/planner.py`に`resolve_and_open_planner()`ヘルパー追加
+- `PlannerSheetResult` NamedTupleでPythonicな戻り値を実現
+- 6関数（ids_list, dates_get/set, metrics_get, plan_get/set）をリファクタリング
+- 各関数で約8行 → 4行に削減
+
+#### 開発ガイドライン整備
+
+- `CONTRIBUTING.md`: ブランチ戦略、コミット規約、コード品質チェックリスト
+- `CLAUDE.md`: Claude Code開発ワークフロー、TDDルール、Pythonicスタイルガイド
+
+#### テスト
+
+- 全150テスト通過（141 + 9新規）
+- TDDに従い、テスト先行でリファクタリング実施
+
+### refactor: Phase 2 共通モジュール化
+
+#### PreviewCacheクラスの作成
+- `lib/preview_cache.py`: 共通キャッシュクラス
+  - トークン生成・格納・取得・削除を一元化
+  - prefix分離でbooks/students独立管理
+  - 10件のテスト追加（`test_preview_cache.py`）
+- `handlers/books.py`: PreviewCache使用に移行
+- `handlers/students.py`: PreviewCache使用に移行
+- 未使用のuuidインポートを削除
+
+#### 入力検証の統一
+- `lib/input_parser.py`: 入力パース関数を集約
+  - `strip_quotes()`: 引用符除去
+  - `coerce_str()`: 文字列抽出
+  - `as_list()`: リスト変換
+  - `coerce_int()`, `coerce_bool()`: 追加ヘルパー
+- `server.py`から関数を削除、lib/input_parserからインポート
+- テストのインポートも更新
+
+#### テスト
+- 全160テスト通過

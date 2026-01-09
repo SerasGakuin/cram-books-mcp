@@ -3,20 +3,13 @@ Students handler.
 Ported from apps/gas/src/handlers/students.ts
 """
 from typing import Any
-import uuid
 
 from sheets_client import SheetsClient
 from config import STUDENTS_MASTER_ID, STUDENTS_SHEET, STUDENT_COLUMNS
 from lib.common import ok, ng, normalize
-from lib.sheet_utils import pick_col, norm_header
+from lib.sheet_utils import pick_col, norm_header, extract_spreadsheet_id
 from lib.id_rules import next_id_for_prefix, extract_ids_from_values
-
-
-def _extract_spreadsheet_id(url: str) -> str:
-    """Extract spreadsheet ID from Google Sheets URL."""
-    import re
-    match = re.search(r"[-\w]{25,}", str(url))
-    return match.group(0) if match else ""
+from lib.preview_cache import PreviewCache
 
 
 def _row_to_student(headers: list[str], row: list) -> dict:
@@ -28,7 +21,7 @@ def _row_to_student(headers: list[str], row: list) -> dict:
     planner_link = get(idx(STUDENT_COLUMNS["planner_link"]))
     planner_sheet_id = get(idx(STUDENT_COLUMNS["planner_sheet_id"]))
     if not planner_sheet_id and planner_link:
-        planner_sheet_id = _extract_spreadsheet_id(planner_link)
+        planner_sheet_id = extract_spreadsheet_id(planner_link) or ""
 
     return {
         "id": get(idx(STUDENT_COLUMNS["id"])),
@@ -256,8 +249,8 @@ def students_filter(
     return ok("students.filter", {"students": results, "count": len(results)})
 
 
-# In-memory cache for confirm tokens (preview -> confirm pattern)
-_PREVIEW_CACHE: dict[str, dict] = {}
+# Shared preview cache for update/delete operations
+_preview_cache = PreviewCache()
 
 
 def students_create(
@@ -352,22 +345,21 @@ def students_update(
                 if str(from_val) != str(to_val):
                     diffs[headers[ci]] = {"from": from_val, "to": to_val}
 
-        token = str(uuid.uuid4())
-        _PREVIEW_CACHE[f"stu_upd:{token}"] = {
+        token = _preview_cache.store("stu_upd", {
             "student_id": student_id,
             "updates": updates,
             "row_index": row_index,
-        }
+        })
 
         return ok("students.update", {
             "requires_confirmation": True,
             "preview": {"diffs": diffs},
             "confirm_token": token,
-            "expires_in_seconds": 300,
+            "expires_in_seconds": _preview_cache.ttl_seconds,
         })
 
     # Confirm mode
-    cached = _PREVIEW_CACHE.pop(f"stu_upd:{confirm_token}", None)
+    cached = _preview_cache.pop("stu_upd", confirm_token)
     if not cached:
         return ng("students.update", "CONFIRM_EXPIRED", "confirm_token is invalid or expired")
 
@@ -426,21 +418,20 @@ def students_delete(
 
     # Preview mode
     if not confirm_token:
-        token = str(uuid.uuid4())
-        _PREVIEW_CACHE[f"stu_del:{token}"] = {
+        token = _preview_cache.store("stu_del", {
             "student_id": student_id,
             "row_index": row_index,
-        }
+        })
 
         return ok("students.delete", {
             "requires_confirmation": True,
             "preview": {"row": row_index},
             "confirm_token": token,
-            "expires_in_seconds": 300,
+            "expires_in_seconds": _preview_cache.ttl_seconds,
         })
 
     # Confirm mode
-    cached = _PREVIEW_CACHE.pop(f"stu_del:{confirm_token}", None)
+    cached = _preview_cache.pop("stu_del", confirm_token)
     if not cached:
         return ng("students.delete", "CONFIRM_EXPIRED", "confirm_token is invalid or expired")
 

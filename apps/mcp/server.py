@@ -21,6 +21,7 @@ from handlers import books as books_handler
 from handlers import students as students_handler
 from handlers import planner as planner_handler
 from handlers import planner_monthly as planner_monthly_handler
+from lib.input_parser import strip_quotes as _strip_quotes, coerce_str as _coerce_str, as_list as _as_list
 
 # Configure transport security to allow Railway domain
 transport_security = None
@@ -39,43 +40,6 @@ mcp = FastMCP("cram-books", transport_security=transport_security)
 
 def log(*a):
     print(*a, file=sys.stderr, flush=True)
-
-
-def _strip_quotes(s: str) -> str:
-    s = s.strip()
-    if (s.startswith('"') and s.endswith('"')) or (s.startswith("'") and s.endswith("'")):
-        return s[1:-1]
-    return s
-
-
-def _coerce_str(x: Any, keys: tuple[str, ...] = ()) -> str | None:
-    if isinstance(x, str):
-        return _strip_quotes(x)
-    if isinstance(x, dict):
-        for k in keys:
-            v = x.get(k)
-            if isinstance(v, str):
-                return _strip_quotes(v)
-    return None
-
-
-def _as_list(x: Any, id_key: str = "id") -> list[str]:
-    """Convert input to a list of IDs."""
-    if x is None:
-        return []
-    if isinstance(x, (list, tuple)):
-        out = []
-        for v in x:
-            if isinstance(v, str):
-                out.append(_strip_quotes(v))
-            elif isinstance(v, dict):
-                s = _coerce_str(v, (id_key, "id"))
-                if s:
-                    out.append(s)
-        return out
-    if isinstance(x, str):
-        return [_strip_quotes(x)]
-    return []
 
 
 # ===== Books Tools =====
