@@ -29,7 +29,7 @@ LLM と Google スプレッドシート（参考書マスター／生徒マス�
   - 今月の“埋めるべきセル”の自動抽出（plan_targets）＋ TOCに基づく簡易サジェスト（suggested_plan_text/numbering_symbol）
   - 計画の一括作成（planner_plan_create）。週混在OKで1コール反映。MUST: 実行前に planner_guidance を参照（create 応答にも guidance_digest を同梱）
   - propose/confirm は廃止。既存クライアント互換は維持するが、新規は create を使用
-  - 確定はGAS側でバッチ書込み（`planner.plan.set` の `items[]` 最適化）
+  - 確定はバッチ書込み（`items[]` 最適化）
 - スピードプランナー（月間管理）
   - 指定年月（B=年、C=月）の実績行を構造化して取得（planner_monthly_filter）
 
@@ -65,25 +65,28 @@ LLM と Google スプレッドシート（参考書マスター／生徒マス�
 ### 2.1 ディレクトリ構成
 ```
 apps/
- ├─ gas/        # [アーカイブ] GAS (TypeScript) - 参照用に保持
  └─ mcp/        # MCP Server (Python FastMCP + Google Sheets API)
      ├─ server.py          # MCPツール定義
      ├─ sheets_client.py   # Google Sheets APIラッパー
      ├─ config.py          # 定数定義（シートID、列マッピング等）
      ├─ env_loader.py      # 環境変数/クレデンシャル読み込み
-     ├─ handlers/          # ビジネスロジック
-     │   ├─ books.py
-     │   ├─ students.py
-     │   ├─ planner.py
-     │   └─ planner_monthly.py
+     ├─ core/              # コア機能
+     │   ├─ base_handler.py  # BaseHandler（共通CRUD）
+     │   └─ preview_cache.py # プレビューキャッシュ
+     ├─ handlers/          # ビジネスロジック（OOPハンドラー）
+     │   ├─ books/         # BooksHandler + SearchMixin
+     │   ├─ students/      # StudentsHandler
+     │   └─ planner/       # PlannerHandler
      ├─ lib/               # 共通ユーティリティ
-     ├─ tests/             # pytest テスト
+     ├─ tests/             # pytest テスト（257件）
      ├─ Dockerfile
      ├─ railway.json       # Railway設定
      └─ Procfile
 scripts/
  └─ deploy_mcp.sh         # Railway デプロイ
 docs/
+ ├─ ARCHITECTURE.md       # アーキテクチャ概要
+ ├─ TESTING.md            # テストガイド
  ├─ speed_planner_weekly.md
  └─ planner_monthly.md
 ```
@@ -138,7 +141,7 @@ railway up
 
 | Component | Tests | Coverage |
 |-----------|-------|----------|
-| MCP helpers + tools | 141 | ~70% |
+| MCP全体（handlers + tools + lib） | 257 | ~85% |
 
 ```bash
 # MCP

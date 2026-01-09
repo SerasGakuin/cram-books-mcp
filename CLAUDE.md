@@ -145,33 +145,43 @@ uv run pytest tests/ --cov=. --cov-report=term-missing
 
 ```
 apps/mcp/
-├── server.py           # MCPサーバーエントリポイント
-├── config.py           # 設定（シートID、列定義）
-├── sheets_client.py    # Google Sheets APIクライアント
-├── handlers/           # ドメインハンドラー
-│   ├── books.py        # 参考書CRUD
-│   ├── students.py     # 生徒CRUD
-│   ├── planner.py      # 週間プランナー
-│   └── planner_monthly.py  # 月間プランナー
-├── lib/                # ユーティリティ
-│   ├── common.py       # ok/ng, normalize等
-│   ├── sheet_utils.py  # シート操作ヘルパー
-│   └── id_rules.py     # ID生成ルール
-└── tests/              # テスト
-    ├── conftest.py     # フィクスチャ
-    ├── test_helpers.py # lib/のテスト
-    ├── test_books_tools.py
-    ├── test_students_tools.py
-    └── test_planner_tools.py
+├── server.py              # MCPサーバーエントリポイント
+├── config.py              # 設定（シートID、列定義）
+├── sheets_client.py       # Google Sheets APIクライアント
+├── core/                  # コア機能
+│   ├── base_handler.py    # BaseHandler（共通CRUD）
+│   └── preview_cache.py   # プレビューキャッシュ
+├── handlers/              # ドメインハンドラー（OOP）
+│   ├── __init__.py        # BooksHandler等のexport
+│   ├── books/
+│   │   ├── handler.py     # BooksHandler（CRUD）
+│   │   └── search.py      # SearchMixin（IDF検索）
+│   ├── students/
+│   │   └── handler.py     # StudentsHandler
+│   └── planner/
+│       └── handler.py     # PlannerHandler（週間・月間）
+├── lib/                   # ユーティリティ
+│   ├── common.py          # ok/ng, normalize等
+│   ├── sheet_utils.py     # シート操作ヘルパー
+│   ├── id_rules.py        # ID生成ルール
+│   ├── input_parser.py    # 入力検証
+│   └── preview_cache.py   # PreviewCache class
+└── tests/                 # テスト（257件）
+    ├── conftest.py        # フィクスチャ
+    ├── test_helpers.py    # lib/のテスト
+    ├── test_*_handler.py  # ハンドラー単体テスト
+    └── test_*_tools.py    # ツール統合テスト
 ```
 
 ## 新機能追加手順
 
-1. `handlers/` にハンドラー関数を追加
-2. `server.py` にMCPツールラッパーを追加
-3. `tests/` にテストを追加
-4. ドキュメント更新（README.md, AGENTS.md）
-5. PROGRESS.mdに記録
+1. `handlers/<domain>/` にハンドラークラスを追加（BaseHandler継承）
+2. `handlers/__init__.py` でexport
+3. `server.py` にMCPツールラッパーを追加
+4. `tests/test_<domain>_handler.py` にハンドラーテストを追加
+5. `tests/test_<domain>_tools.py` にツールテストを追加
+6. ドキュメント更新（README.md, AGENTS.md）
+7. PROGRESS.mdに記録
 
 ## よく使うコマンド
 

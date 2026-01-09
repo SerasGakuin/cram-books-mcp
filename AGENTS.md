@@ -45,33 +45,36 @@
 ```
 cram-books-mcp/
 ├── apps/
-│   ├── gas/                    # [アーカイブ] GAS (TypeScript) - 参照用に保持
-│   │   ├── src/                # TypeScriptソース
-│   │   └── dist/               # ビルド成果物
 │   └── mcp/                    # MCP Server (Python FastMCP + Google Sheets API)
-│       ├── server.py           # MCPツール定義（23ツール）
+│       ├── server.py           # MCPツール定義
 │       ├── sheets_client.py    # Google Sheets APIラッパー
 │       ├── config.py           # 定数定義（シートID、列マッピング等）
 │       ├── env_loader.py       # 環境変数/クレデンシャル読み込み
-│       ├── handlers/           # ビジネスロジック
-│       │   ├── books.py        # 参考書操作（IDF検索含む）
-│       │   ├── students.py     # 生徒管理
-│       │   ├── planner.py      # 週間管理
-│       │   └── planner_monthly.py  # 月間管理
+│       ├── core/               # コア機能
+│       │   ├── base_handler.py # BaseHandler（共通CRUD）
+│       │   └── preview_cache.py
+│       ├── handlers/           # ビジネスロジック（OOPハンドラー）
+│       │   ├── books/          # BooksHandler + SearchMixin
+│       │   ├── students/       # StudentsHandler
+│       │   └── planner/        # PlannerHandler
 │       ├── lib/                # 共通ユーティリティ
 │       │   ├── common.py       # normalize, ok, ng等
 │       │   ├── sheet_utils.py  # norm_header, pick_col, tokenize等
-│       │   └── id_rules.py     # decide_prefix, next_id_for_prefix
-│       ├── tests/              # pytest テスト（141件）
+│       │   ├── id_rules.py     # decide_prefix, next_id_for_prefix
+│       │   ├── input_parser.py # InputParser
+│       │   └── preview_cache.py
+│       ├── tests/              # pytest テスト（257件）
 │       ├── Dockerfile
 │       ├── railway.json        # Railway設定
 │       └── Procfile
 ├── scripts/
 │   └── deploy_mcp.sh           # Railway デプロイ
 ├── docs/
+│   ├── ARCHITECTURE.md         # アーキテクチャ概要
+│   ├── TESTING.md              # テストガイド
 │   ├── speed_planner_weekly.md
 │   └── planner_monthly.md
-├── AGENTS.md, README.md, PROGRESS.md
+├── AGENTS.md, README.md, CLAUDE.md, CONTRIBUTING.md, PROGRESS.md
 └── .gitignore
 ```
 
@@ -285,20 +288,6 @@ Claude: その参考書の詳細を教えてください
 - **deploy.yml**: 手動またはコミットメッセージトリガーでデプロイ
   - `[deploy-mcp]`: Railwayにデプロイ
   - 必要シークレット: `RAILWAY_TOKEN`
-
-## アーカイブ: GAS（参照用）
-
-> apps/gas/ は2026-01-09以前のGAS WebApp実装です。ロジック参照用として保持していますが、現在は使用していません。
-
-### 旧アーキテクチャ（参考）
-```
-[Claude] → [Cloud Run: MCP] → [GAS WebApp] → [Google Sheets]
-```
-
-### 現行アーキテクチャ
-```
-[Claude] → [Railway: MCP] → [Google Sheets API] → [Google Sheets]
-```
 
 ## ベストプラクティス
 

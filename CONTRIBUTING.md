@@ -43,7 +43,8 @@ test(students): add filter edge cases
 - `students`: 生徒関連
 - `planner`: プランナー関連
 - `mcp`: MCPサーバー全般
-- `gas`: GAS関連（アーカイブ）
+- `handlers`: ハンドラー共通
+- `docs`: ドキュメント
 
 ## コード品質
 
