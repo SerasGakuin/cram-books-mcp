@@ -20,7 +20,12 @@ from sheets_client import get_sheets_client
 from handlers.books import BooksHandler
 from handlers.students import StudentsHandler
 from handlers.planner import PlannerHandler
-from lib.input_parser import coerce_str as _coerce_str, as_list as _as_list
+from lib.input_parser import (
+    coerce_str as _coerce_str,
+    as_list as _as_list,
+    resolve_entity_ids,
+    resolve_planner_context,
+)
 from lib.errors import bad_request
 
 # Configure transport security to allow Railway domain
@@ -92,10 +97,7 @@ async def books_get(book_id: Any = None, book_ids: Any = None) -> dict:
     - 単一: { ok:true, data: { book: { id, title, subject, structure:{chapters…} } } }
     - 複数: { ok:true, data: { books: [ {id,…}, {id,…} ] } }
     """
-    single = _coerce_str(book_id, ("book_id", "id"))
-    many = _as_list(book_ids, "book_id")
-    if not many:
-        many = _as_list(book_id) if isinstance(book_id, (list, tuple)) else []
+    single, many = resolve_entity_ids(book_id, book_ids, ("book_id", "id"), "book_id")
 
     sheets = get_sheets_client()
     handler = BooksHandler(sheets)
@@ -266,10 +268,7 @@ async def students_find(query: Any, limit: int | None = 10, include_all: bool | 
 @mcp.tool()
 async def students_get(student_id: Any = None, student_ids: Any = None) -> dict:
     """生徒の詳細を取得（単一/複数対応）。"""
-    single = _coerce_str(student_id, ("student_id", "id"))
-    many = _as_list(student_ids, "student_id")
-    if not many and isinstance(student_id, (list, tuple)):
-        many = _as_list(student_id)
+    single, many = resolve_entity_ids(student_id, student_ids, ("student_id", "id"), "student_id")
 
     sheets = get_sheets_client()
     handler = StudentsHandler(sheets)
@@ -347,8 +346,7 @@ async def students_delete(student_id: Any, confirm_token: str | None = None) -> 
 @mcp.tool()
 async def planner_ids_list(student_id: Any = None, spreadsheet_id: Any = None) -> dict:
     """A4:D30 を読み取り、raw_code/月コード/book_id/教科/タイトル/進め方メモを返します。"""
-    sid = _coerce_str(student_id, ("student_id", "id"))
-    spid = _coerce_str(spreadsheet_id, ("spreadsheet_id", "sheet_id", "id"))
+    sid, spid = resolve_planner_context(student_id, spreadsheet_id)
 
     if not (sid or spid):
         return bad_request("planner.ids_list", "student_id or spreadsheet_id is required")
@@ -361,8 +359,7 @@ async def planner_ids_list(student_id: Any = None, spreadsheet_id: Any = None) -
 @mcp.tool()
 async def planner_dates_get(student_id: Any = None, spreadsheet_id: Any = None) -> dict:
     """週開始日 D1/L1/T1/AB1/AJ1 を取得。"""
-    sid = _coerce_str(student_id, ("student_id", "id"))
-    spid = _coerce_str(spreadsheet_id, ("spreadsheet_id", "sheet_id", "id"))
+    sid, spid = resolve_planner_context(student_id, spreadsheet_id)
 
     sheets = get_sheets_client()
     handler = PlannerHandler(sheets)
@@ -375,8 +372,7 @@ async def planner_dates_set(start_date: str, student_id: Any = None, spreadsheet
     if not start_date:
         return bad_request("planner.dates.set", "start_date is required")
 
-    sid = _coerce_str(student_id, ("student_id", "id"))
-    spid = _coerce_str(spreadsheet_id, ("spreadsheet_id", "sheet_id", "id"))
+    sid, spid = resolve_planner_context(student_id, spreadsheet_id)
 
     sheets = get_sheets_client()
     handler = PlannerHandler(sheets)
@@ -386,8 +382,7 @@ async def planner_dates_set(start_date: str, student_id: Any = None, spreadsheet
 @mcp.tool()
 async def planner_metrics_get(student_id: Any = None, spreadsheet_id: Any = None) -> dict:
     """週ごとの週間時間/単位処理量/目安処理量を取得。"""
-    sid = _coerce_str(student_id, ("student_id", "id"))
-    spid = _coerce_str(spreadsheet_id, ("spreadsheet_id", "sheet_id", "id"))
+    sid, spid = resolve_planner_context(student_id, spreadsheet_id)
 
     sheets = get_sheets_client()
     handler = PlannerHandler(sheets)
@@ -397,8 +392,7 @@ async def planner_metrics_get(student_id: Any = None, spreadsheet_id: Any = None
 @mcp.tool()
 async def planner_plan_get(student_id: Any = None, spreadsheet_id: Any = None) -> dict:
     """計画セル（H/P/X/AF/AN, 行4〜30）を取得。メトリクスも統合。"""
-    sid = _coerce_str(student_id, ("student_id", "id"))
-    spid = _coerce_str(spreadsheet_id, ("spreadsheet_id", "sheet_id", "id"))
+    sid, spid = resolve_planner_context(student_id, spreadsheet_id)
 
     sheets = get_sheets_client()
     handler = PlannerHandler(sheets)
@@ -446,8 +440,7 @@ async def planner_plan_set(
     spreadsheet_id: Any = None,
 ) -> dict:
     """計画セルへの書込み。単体モードまたは一括(items)モード。"""
-    sid = _coerce_str(student_id, ("student_id", "id"))
-    spid = _coerce_str(spreadsheet_id, ("spreadsheet_id", "sheet_id", "id"))
+    sid, spid = resolve_planner_context(student_id, spreadsheet_id)
 
     sheets = get_sheets_client()
     handler = PlannerHandler(sheets)
@@ -482,8 +475,7 @@ async def planner_plan_create(
     if not isinstance(items, list) or not items:
         return bad_request("planner.plan.create", "items[] is required")
 
-    sid = _coerce_str(student_id, ("student_id", "id"))
-    spid = _coerce_str(spreadsheet_id, ("spreadsheet_id", "sheet_id", "id"))
+    sid, spid = resolve_planner_context(student_id, spreadsheet_id)
 
     sheets = get_sheets_client()
     handler = PlannerHandler(sheets)
@@ -557,8 +549,7 @@ async def planner_monthly_filter(
     spreadsheet_id: Any = None,
 ) -> dict:
     """月間管理から指定年月の実績を取得。"""
-    sid = _coerce_str(student_id, ("student_id", "id"))
-    spid = _coerce_str(spreadsheet_id, ("spreadsheet_id", "sheet_id", "id"))
+    sid, spid = resolve_planner_context(student_id, spreadsheet_id)
 
     sheets = get_sheets_client()
     handler = PlannerHandler(sheets)

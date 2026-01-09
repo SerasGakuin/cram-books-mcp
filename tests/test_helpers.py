@@ -7,7 +7,13 @@ import pytest
 from lib.common import normalize, to_number_or_none, ok, ng
 from lib.sheet_utils import norm_header, pick_col, tokenize, parse_monthly_goal, col_letter_to_index, extract_spreadsheet_id
 from lib.id_rules import decide_prefix, next_id_for_prefix, extract_ids_from_values
-from lib.input_parser import strip_quotes as _strip_quotes, coerce_str as _coerce_str, as_list as _as_list
+from lib.input_parser import (
+    strip_quotes as _strip_quotes,
+    coerce_str as _coerce_str,
+    as_list as _as_list,
+    resolve_entity_ids,
+    resolve_planner_context,
+)
 
 
 class TestStripQuotes:
@@ -423,3 +429,74 @@ class TestExtractSpreadsheetId:
         url = "https://docs.google.com/spreadsheets/d/1abc-XYZ_123-456_789-abc_def/edit"
         result = extract_spreadsheet_id(url)
         assert result == "1abc-XYZ_123-456_789-abc_def"
+
+
+class TestResolveEntityIds:
+    """Tests for resolve_entity_ids function"""
+
+    def test_single_string_id(self):
+        single, many = resolve_entity_ids("book123", None)
+        assert single == "book123"
+        assert many == []
+
+    def test_multiple_ids(self):
+        single, many = resolve_entity_ids(None, ["id1", "id2"])
+        assert single is None
+        assert many == ["id1", "id2"]
+
+    def test_dict_single_id(self):
+        single, many = resolve_entity_ids({"book_id": "b1"}, None, ("book_id", "id"))
+        assert single == "b1"
+        assert many == []
+
+    def test_list_in_single_param(self):
+        # If single_id is actually a list, treat it as multiple
+        single, many = resolve_entity_ids(["id1", "id2"], None)
+        assert single is None
+        assert many == ["id1", "id2"]
+
+    def test_multi_param_takes_precedence(self):
+        # If both are provided, multi_ids is used for many
+        single, many = resolve_entity_ids("one", ["a", "b"])
+        assert single == "one"
+        assert many == ["a", "b"]
+
+    def test_dict_list_in_multi(self):
+        single, many = resolve_entity_ids(None, [{"book_id": "b1"}, {"book_id": "b2"}], multi_key="book_id")
+        assert single is None
+        assert many == ["b1", "b2"]
+
+
+class TestResolvePlannerContext:
+    """Tests for resolve_planner_context function"""
+
+    def test_string_inputs(self):
+        sid, spid = resolve_planner_context("s001", "sheet123")
+        assert sid == "s001"
+        assert spid == "sheet123"
+
+    def test_dict_inputs(self):
+        sid, spid = resolve_planner_context(
+            {"student_id": "s002"},
+            {"spreadsheet_id": "sp456"}
+        )
+        assert sid == "s002"
+        assert spid == "sp456"
+
+    def test_alt_key_names(self):
+        sid, spid = resolve_planner_context(
+            {"id": "s003"},
+            {"sheet_id": "sp789"}
+        )
+        assert sid == "s003"
+        assert spid == "sp789"
+
+    def test_none_inputs(self):
+        sid, spid = resolve_planner_context(None, None)
+        assert sid is None
+        assert spid is None
+
+    def test_strips_quotes(self):
+        sid, spid = resolve_planner_context('"s004"', "'sp123'")
+        assert sid == "s004"
+        assert spid == "sp123"

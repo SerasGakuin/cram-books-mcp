@@ -138,6 +138,58 @@ def coerce_bool(x: Any, keys: tuple[str, ...] = ()) -> bool | None:
     return None
 
 
+def resolve_entity_ids(
+    single_id: Any,
+    multi_ids: Any,
+    single_keys: tuple[str, ...] = ("id",),
+    multi_key: str = "id",
+) -> tuple[str | None, list[str]]:
+    """
+    Resolve both single ID and multiple IDs from input.
+
+    Handles the common pattern of accepting either:
+    - A single ID (string or dict with id key)
+    - Multiple IDs (list/tuple)
+    - A single parameter that could be either
+
+    Args:
+        single_id: Primary single ID input
+        multi_ids: Multiple IDs input
+        single_keys: Keys to check in dict for single ID
+        multi_key: Key to extract from list items
+
+    Returns:
+        Tuple of (single_id_str, list_of_ids)
+    """
+    single = coerce_str(single_id, single_keys)
+    many = as_list(multi_ids, multi_key)
+
+    # If multi_ids was empty, check if single_id was actually a list
+    if not many and isinstance(single_id, (list, tuple)):
+        many = as_list(single_id, multi_key)
+
+    return single, many
+
+
+def resolve_planner_context(
+    student_id: Any,
+    spreadsheet_id: Any,
+) -> tuple[str | None, str | None]:
+    """
+    Resolve student_id and spreadsheet_id for planner tools.
+
+    Args:
+        student_id: Student ID input
+        spreadsheet_id: Spreadsheet ID input
+
+    Returns:
+        Tuple of (student_id_str, spreadsheet_id_str)
+    """
+    sid = coerce_str(student_id, ("student_id", "id"))
+    spid = coerce_str(spreadsheet_id, ("spreadsheet_id", "sheet_id", "id"))
+    return sid, spid
+
+
 # Aliases for backwards compatibility with server.py naming
 _strip_quotes = strip_quotes
 _coerce_str = coerce_str

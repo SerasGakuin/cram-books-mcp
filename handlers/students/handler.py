@@ -268,59 +268,11 @@ class StudentsHandler(BaseHandler):
         if len(self.values) < 2:
             return self._ok("students.filter", {"students": [], "count": 0})
 
-        where = where or {}
-        contains = contains or {}
-
-        normalized_headers = [norm_header(h) for h in self.headers]
-
-        def col_index_for(key: str) -> int:
-            nk = norm_header(key)
-            try:
-                return normalized_headers.index(nk)
-            except ValueError:
-                return -1
-
-        where_pairs = [(norm_header(k), str(v)) for k, v in where.items()]
-        contains_pairs = [(norm_header(k), str(v)) for k, v in contains.items()]
-
-        results: list[dict] = []
-        for row in self.values[1:]:
-            if not self._matches_conditions(row, where_pairs, contains_pairs, col_index_for):
-                continue
-            results.append(self._row_to_student(row))
-
-        if limit and limit > 0:
-            results = results[:limit]
+        # Use BaseHandler.filter_by_conditions() for filtering
+        filtered = self.filter_by_conditions(where, contains, limit)
+        results = [self._row_to_student(row) for _, row in filtered]
 
         return self._ok("students.filter", {"students": results, "count": len(results)})
-
-    def _matches_conditions(
-        self,
-        row: list[Any],
-        where_pairs: list[tuple[str, str]],
-        contains_pairs: list[tuple[str, str]],
-        col_index_for: callable,
-    ) -> bool:
-        """Check if a row matches all filter conditions."""
-        # Check where (exact match)
-        for k, v in where_pairs:
-            ci = col_index_for(k)
-            if ci < 0:
-                return False
-            raw = str(row[ci]) if ci < len(row) else ""
-            if norm_header(raw) != norm_header(v):
-                return False
-
-        # Check contains (partial match)
-        for k, v in contains_pairs:
-            ci = col_index_for(k)
-            if ci < 0:
-                return False
-            raw = str(row[ci]) if ci < len(row) else ""
-            if norm_header(v) not in norm_header(raw):
-                return False
-
-        return True
 
     # === Create ===
 
