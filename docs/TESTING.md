@@ -11,7 +11,7 @@
 | tools（ツール） | 87 | MCPツール統合 |
 | core（コア） | 20 | BaseHandler, PreviewCache |
 | mixin（Mixin） | 12 | TwoPhaseOperationMixin |
-| **合計** | **280** | ~85% カバレッジ |
+| **合計** | **291** | ~85% カバレッジ |
 
 ## テスト実行
 

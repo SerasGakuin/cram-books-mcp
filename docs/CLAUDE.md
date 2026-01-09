@@ -178,7 +178,7 @@ cram-books-mcp/
 │   ├── CONTRIBUTING.md    # 貢献ガイド
 │   ├── CHANGELOG.md       # 変更履歴
 │   └── specs/             # 仕様書
-└── tests/                 # テスト（280件）
+└── tests/                 # テスト（291件）
     ├── conftest.py        # フィクスチャ
     ├── test_helpers.py    # lib/のテスト
     ├── test_two_phase_mixin.py  # Mixinテスト
